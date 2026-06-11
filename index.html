@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>装修知识库原型</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css?v=20260611-1" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <span class="brand-mark">筑</span>
+          <div>
+            <strong>装修知识库</strong>
+            <span>从毛坯到入住</span>
+          </div>
+        </div>
+
+        <nav class="nav-list" aria-label="页面">
+          <button class="nav-item" data-view="overview" type="button">流程总览</button>
+          <button class="nav-item" data-view="sources" type="button">视频来源</button>
+          <button class="nav-item" data-view="videos" type="button">视频列表</button>
+          <button class="nav-item" data-view="progress" type="button">处理进度</button>
+          <button class="nav-item" data-view="knowledge" type="button">知识库</button>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">MVP Prototype</p>
+            <h1 id="page-title">装修全流程知识地图</h1>
+          </div>
+        </header>
+
+        <section class="view" id="overview-view" aria-labelledby="page-title">
+          <div class="summary-grid">
+            <article>
+              <span>阶段</span>
+              <strong id="metric-stages">17</strong>
+            </article>
+            <article>
+              <span>流程节点</span>
+              <strong id="metric-notes">5</strong>
+            </article>
+            <article>
+              <span>视频来源</span>
+              <strong id="metric-dos">74</strong>
+            </article>
+            <article>
+              <span>已提取观点</span>
+              <strong id="metric-donts">54</strong>
+            </article>
+          </div>
+
+          <div class="section-heading">
+            <h2>从毛坯到入住</h2>
+            <p>装修流程是主轴，视频文案提取出的观点会同时挂到流程阶段和知识库标签。</p>
+          </div>
+
+          <div class="timeline" id="timeline"></div>
+        </section>
+
+        <section class="view" id="sources-view" aria-labelledby="sources-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="sources-heading">视频来源</h2>
+              <p>按博主管理主页链接、采集状态和入库进度。更新按钮每个博主默认只取最新 5 条。</p>
+            </div>
+            <div class="queue-actions">
+              <button class="primary-button" id="open-ingest" type="button">添加来源</button>
+              <button class="primary-button red" id="update-all-sources" type="button">全部更新 5 条</button>
+            </div>
+          </div>
+          <p class="source-message" id="source-message" role="status"></p>
+
+          <section class="ingest-panel" id="ingest-panel" hidden aria-label="批量导入账号作品">
+            <div class="ingest-head">
+              <div>
+                <p class="eyebrow">Batch Source</p>
+                <h3>账号主页更新</h3>
+              </div>
+              <button class="icon-button quiet" id="close-ingest" type="button" aria-label="关闭添加面板" title="关闭">×</button>
+            </div>
+
+            <form id="ingest-form" class="ingest-form">
+              <label>
+                <span>平台</span>
+                <select name="batch_platform">
+                  <option value="抖音">抖音</option>
+                  <option value="小红书">小红书</option>
+                </select>
+              </label>
+              <label>
+                <span>最近作品数</span>
+                <input name="batch_limit" type="number" min="1" max="50" value="5" />
+              </label>
+              <label class="wide">
+                <span>主页链接</span>
+                <textarea name="batch_profile_url" rows="3" placeholder="粘贴抖音/小红书博主主页链接"></textarea>
+              </label>
+
+              <div class="ingest-actions">
+                <p id="ingest-message" role="status"></p>
+                <button class="primary-button red" type="submit" data-mode="batch">更新主页作品</button>
+              </div>
+            </form>
+          </section>
+          <div class="source-grid" id="source-grid"></div>
+        </section>
+
+        <section class="view" id="videos-view" aria-labelledby="videos-heading">
+          <div class="section-heading">
+            <h2 id="videos-heading">视频列表</h2>
+            <p>第一层用于管理来源视频：链接、文案状态、观点提取状态和入库数量。</p>
+          </div>
+
+          <div class="pipeline" id="pipeline"></div>
+          <div class="video-filter-panel" id="video-filter-panel"></div>
+
+          <div class="video-grid" id="video-grid"></div>
+        </section>
+
+        <section class="view" id="progress-view" aria-labelledby="progress-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="progress-heading">处理进度</h2>
+              <p>按队列查看每条视频当前阶段，失败后可回到对应步骤重试。</p>
+            </div>
+            <div class="queue-actions">
+              <button class="primary-button small progress-run-button" id="progress-process-pending" type="button" data-state="idle">
+                <span class="run-status-dot" aria-hidden="true"></span>
+                <span data-run-label>自动处理剩余</span>
+              </button>
+            </div>
+          </div>
+          <p class="source-message" id="progress-message" role="status"></p>
+          <details class="queue-log-panel" id="queue-log-panel" open hidden>
+            <summary>
+              <span>自动队列日志</span>
+              <small id="queue-log-meta">暂无任务</small>
+            </summary>
+            <pre id="queue-log-body">[--:--:--] 等待自动队列启动...</pre>
+          </details>
+          <div class="progress-tabs" id="progress-tabs"></div>
+          <div class="progress-list" id="progress-list"></div>
+        </section>
+
+        <section class="view" id="detail-view" aria-labelledby="detail-heading">
+          <div class="detail-actions">
+            <button class="primary-button small" id="back-to-videos" type="button">返回视频列表</button>
+          </div>
+          <div class="detail-layout">
+            <article class="transcript-panel">
+              <div class="detail-head">
+                <div>
+                  <p class="eyebrow" id="detail-platform">Douyin Source</p>
+                  <h2 id="detail-heading">视频详情</h2>
+                </div>
+                <a class="source-link" id="detail-link" href="#" target="_blank" rel="noreferrer">来源视频</a>
+              </div>
+              <dl class="meta-list">
+                <div>
+                  <dt>博主</dt>
+                  <dd id="detail-creator">-</dd>
+                </div>
+                <div>
+                  <dt>提取观点</dt>
+                  <dd id="detail-claim-count">0</dd>
+                </div>
+                <div>
+                  <dt>状态</dt>
+                  <dd id="detail-status">-</dd>
+                </div>
+              </dl>
+              <div class="transcript-text" id="transcript-text"></div>
+            </article>
+
+            <section class="claim-panel">
+              <div class="section-heading compact">
+                <h2>提取观点</h2>
+                <p>只展示文案明确表达的内容，原文没说的一律标记为未提及。</p>
+              </div>
+              <div class="claim-list" id="video-claims"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="knowledge-view" aria-labelledby="knowledge-heading">
+          <div class="search-page-head">
+            <div>
+              <p class="eyebrow">Knowledge Base</p>
+              <h2 id="knowledge-heading">按分类聚合观点</h2>
+            </div>
+            <input id="knowledge-query" type="search" placeholder="搜索：集成灶、乳胶漆、无主灯..." />
+          </div>
+
+          <div class="knowledge-layout">
+            <nav class="knowledge-filter-panel" aria-label="知识库分类">
+              <div id="knowledge-stage-list" class="stage-list"></div>
+            </nav>
+            <section class="knowledge-result-panel">
+              <div class="search-results" id="knowledge-results"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js?v=20260611-1"></script>
+  </body>
+</html>
