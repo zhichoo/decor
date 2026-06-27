@@ -36,8 +36,8 @@ function resolveApiBase() {
   const storedApiOrigin = normalizeApiOrigin(localStorage.getItem("zhuangxiuApiOrigin"));
   if (window.location.protocol === "http:" || window.location.protocol === "https:") {
     const currentOrigin = normalizeApiOrigin(window.location.origin);
+    if (currentOrigin !== DEFAULT_LOCAL_API_ORIGIN) return `${currentOrigin}/api`;
     if (storedApiOrigin) return `${storedApiOrigin}/api`;
-    if (currentOrigin === DEFAULT_LOCAL_API_ORIGIN) return `${currentOrigin}/api`;
     return `${DEFAULT_LOCAL_API_ORIGIN}/api`;
   }
   if (storedApiOrigin) return `${storedApiOrigin}/api`;
@@ -45,7 +45,7 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
-const API_CACHE_KEY = "zhuangxiuApiSnapshot:v1";
+const API_CACHE_KEY = "zhuangxiuApiSnapshot:v4";
 const API_CACHE_MAX_AGE = 10 * 60 * 1000;
 
 const fallbackVideos = [];
@@ -92,6 +92,7 @@ const viewTitles = {
   detail: "视频详情",
   progress: "处理进度",
   knowledge: "知识库",
+  deleted: "已删除",
 };
 const viewNames = new Set(Object.keys(viewTitles));
 
@@ -101,8 +102,10 @@ function getInitialView() {
 }
 
 let videos = fallbackVideos;
+let progressVideos = [];
 let sources = [];
 let knowledgeClaims = [];
+let deletedItems = { videos: [], claims: [], videoTotal: 0, claimTotal: 0, loading: false, error: "" };
 let activeView = getInitialView();
 let selectedVideoId = videos[0]?.id || null;
 let activeSourceFilter = null;
@@ -119,9 +122,16 @@ let queueLogMode = "global";
 let apiLoadState = { status: "loading", error: "", attempts: 0 };
 let apiHealthState = { ok: true, dbAvailable: true, dbMessage: "" };
 let apiStats = { sourceCount: null, videoCount: null, transcriptCount: null, claimCount: null };
+let adminSession = { authenticated: false, configured: false };
+let progressSummary = null;
 let apiLoadRequestId = 0;
 let douyinLoginStatus = { status: "idle", message: "未检查", running: false, logged_in: false };
 let douyinLoginTimer = null;
+let knowledgeSearchTimer = null;
+let autoLoadObserver = null;
+let queueLogFollowState = { global: true };
+let adminLoginBusy = false;
+let adminLoginReturnFocus = null;
 
 const pageTitle = document.querySelector("#page-title");
 const openIngestButton = document.querySelector("#open-ingest");
@@ -137,6 +147,38 @@ const knowledgeLayout = document.querySelector("#knowledge-layout");
 const knowledgeFilterToggle = document.querySelector("#knowledge-filter-toggle");
 const knowledgeFilterCurrent = document.querySelector("#knowledge-filter-current");
 const progressProcessPendingButton = document.querySelector("#progress-process-pending");
+const adminPanel = document.querySelector("#admin-panel");
+const adminStatus = document.querySelector("#admin-status");
+const adminLoginButton = document.querySelector("#admin-login-button");
+const adminLogoutButton = document.querySelector("#admin-logout-button");
+const adminLoginModal = document.querySelector("#admin-login-modal");
+const adminLoginForm = document.querySelector("#admin-login-form");
+const adminLoginPassword = document.querySelector("#admin-login-password");
+const adminLoginSubmit = document.querySelector("#admin-login-submit");
+const adminLoginMessage = document.querySelector("#admin-login-message");
+const VIDEO_PAGE_SIZE = 30;
+const KNOWLEDGE_PAGE_SIZE = 50;
+let videoPageState = { total: 0, limit: VIDEO_PAGE_SIZE, offset: 0, hasMore: false, loading: false, error: "" };
+let progressPageState = { total: 0, limit: VIDEO_PAGE_SIZE, offset: 0, hasMore: false, loading: false, error: "" };
+let knowledgePageState = { total: 0, limit: KNOWLEDGE_PAGE_SIZE, offset: 0, hasMore: false, loading: false, error: "" };
+
+const autoLoadTargets = {
+  "load-more-videos": {
+    view: "videos",
+    canLoad: () => videoPageState.hasMore && !videoPageState.loading,
+    load: () => loadVideoPage({ append: true }),
+  },
+  "load-more-progress": {
+    view: "progress",
+    canLoad: () => progressPageState.hasMore && !progressPageState.loading,
+    load: () => loadProgressPage({ append: true }),
+  },
+  "load-more-knowledge": {
+    view: "knowledge",
+    canLoad: () => knowledgePageState.hasMore && !knowledgePageState.loading,
+    load: () => loadKnowledgePage({ append: true }),
+  },
+};
 function getAllClaims() {
   if (knowledgeClaims.length) return knowledgeClaims;
   return videos.flatMap((video) =>
@@ -192,6 +234,21 @@ function getVideoPublishTimestamp(video) {
   return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
+function formatEpochDateTime(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "未记录";
+  const date = new Date(timestamp * 1000);
+  const pad = (part) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function getVideoProgressTimeItems(video) {
+  return [
+    { label: "发布时间", value: video.publishTime || "未提及" },
+    { label: "状态更新时间", value: formatEpochDateTime(video.updatedAt) },
+  ];
+}
+
 function sortVideosByPublishTime(items) {
   return [...items].sort((a, b) => getVideoPublishTimestamp(b) - getVideoPublishTimestamp(a));
 }
@@ -200,6 +257,8 @@ function normalizeApiClaim(claim) {
   const reasons = Array.isArray(claim.original_reasons) ? claim.original_reasons : claim.original_reasons ? [claim.original_reasons] : [];
   const alternatives = Array.isArray(claim.alternatives) ? claim.alternatives.join("；") : claim.alternatives || "";
   return {
+    id: claim.id,
+    videoId: claim.video_id,
     object: claim.object_name,
     stance: claim.stance,
     stage: claim.process_stage,
@@ -227,6 +286,10 @@ function normalizeApiVideo(video) {
     shareText: video.share_text,
     status: video.status,
     publishTime: video.published_at || "未提及",
+    createdAt: video.created_at || null,
+    updatedAt: video.updated_at || null,
+    transcriptCreatedAt: video.transcript_created_at || null,
+    lastRetryAt: video.last_retry_at || null,
     claimCount: video.claim_count || 0,
     retryCount: video.retry_count || 0,
     lastError: video.last_error || "",
@@ -238,12 +301,46 @@ function normalizeApiVideo(video) {
 }
 
 function hasVideoTranscript(video) {
-  return Boolean(video?.hasTranscript || (video?.transcript && !video.transcript.includes("未保存")));
+  return Boolean(video?.hasTranscript || video?.transcriptLength > 0);
 }
 
 function getVideoTranscriptLabel(video) {
   if (!hasVideoTranscript(video)) return "待提取";
-  return video.transcriptLength > 0 ? `${video.transcriptLength} 字` : "已获取";
+  return video.transcriptLength > 0 ? `${video.transcriptLength} 字` : "已保存";
+}
+
+const VIDEO_STATUS_LABELS = {
+  created: "已创建",
+  transcript_pending: "待提取文案",
+  transcript_saved: "文案已保存",
+  claims_extracted: "观点已提取",
+  claims_filtered: "观点已过滤",
+  claims_seeded: "种子观点已入库",
+  transcript_failed: "文稿转写失败",
+  completed: "已完成",
+  filtered: "已过滤",
+  empty: "暂无状态",
+};
+
+function getVideoStatusLabel(status) {
+  return VIDEO_STATUS_LABELS[status] || "未知状态";
+}
+
+function getVideoReasonLabel(video) {
+  const reason = String(video?.lastError || "").trim();
+  if (!reason) return "";
+  if (video.status === "claims_filtered") return `无可用观点：${reason.replace(/^无有效内容[:：]\s*/, "")}`;
+  if (video.status === "transcript_failed") return `文案失败：${reason}`;
+  return `处理原因：${reason}`;
+}
+
+const SOURCE_STATUS_LABELS = {
+  active: "启用中",
+  inactive: "已停用",
+};
+
+function getSourceStatusLabel(status) {
+  return SOURCE_STATUS_LABELS[status] || "未知状态";
 }
 
 function normalizeKnowledgeClaim(claim) {
@@ -283,6 +380,7 @@ function writeApiCache() {
         videos,
         knowledgeClaims,
         apiStats,
+        progressSummary,
       }),
     );
   } catch (error) {
@@ -295,6 +393,7 @@ function applyApiSnapshot(snapshot) {
   videos = sortVideosByPublishTime(snapshot.videos);
   knowledgeClaims = snapshot.knowledgeClaims;
   apiStats = snapshot.apiStats || apiStats;
+  progressSummary = snapshot.progressSummary || progressSummary;
   if (activeSourceFilter && !sources.some((source) => source.id === activeSourceFilter.id)) {
     activeSourceFilter = null;
   }
@@ -312,6 +411,207 @@ function applyApiHealth(payload = {}) {
   if (apiHealthState.dbAvailable === false) {
     throw new Error(`数据库当前不可用：${apiHealthState.dbMessage || "请稍后重试"}`);
   }
+}
+
+function renderAdminSession() {
+  if (!adminPanel || !adminStatus || !adminLoginButton || !adminLogoutButton) return;
+  adminPanel.dataset.authenticated = adminSession.authenticated ? "true" : "false";
+  if (!adminSession.configured) {
+    adminStatus.textContent = "管理员未配置";
+    adminLoginButton.hidden = false;
+    adminLogoutButton.hidden = true;
+    return;
+  }
+  adminStatus.textContent = adminSession.authenticated ? "管理员已登录" : "管理员未登录";
+  adminLoginButton.hidden = adminSession.authenticated;
+  adminLogoutButton.hidden = !adminSession.authenticated;
+  renderIfActive("videos", "progress", "detail", "knowledge", "deleted");
+}
+
+async function loadAdminSession() {
+  try {
+    adminSession = await fetchApiJson("/admin/session");
+  } catch (error) {
+    adminSession = { authenticated: false, configured: false, error: error.message };
+  }
+  renderAdminSession();
+  return adminSession;
+}
+
+async function loadDeletedItems() {
+  if (!adminSession.authenticated) {
+    deletedItems = { ...deletedItems, videos: [], claims: [], videoTotal: 0, claimTotal: 0, loading: false, error: "" };
+    renderDeleted();
+    return;
+  }
+  deletedItems = { ...deletedItems, loading: true, error: "" };
+  renderDeleted();
+  try {
+    const payload = await fetchApiJson("/admin/deleted");
+    deletedItems = {
+      videos: payload.videos || [],
+      claims: payload.claims || [],
+      videoTotal: normalizeCount(payload.video_total) || 0,
+      claimTotal: normalizeCount(payload.claim_total) || 0,
+      loading: false,
+      error: "",
+    };
+  } catch (error) {
+    deletedItems = { ...deletedItems, loading: false, error: error.message };
+  }
+  renderDeleted();
+}
+
+function setAdminLoginMessage(message = "", type = "") {
+  if (!adminLoginMessage) return;
+  adminLoginMessage.textContent = message;
+  if (type) {
+    adminLoginMessage.dataset.type = type;
+  } else {
+    delete adminLoginMessage.dataset.type;
+  }
+}
+
+function setAdminLoginBusy(busy) {
+  adminLoginBusy = busy;
+  if (adminLoginSubmit) {
+    adminLoginSubmit.disabled = busy;
+    adminLoginSubmit.textContent = busy ? "登录中..." : "登录";
+  }
+  if (adminLoginPassword) {
+    adminLoginPassword.disabled = busy;
+  }
+  if (adminLoginButton) {
+    adminLoginButton.disabled = busy;
+  }
+  document.querySelectorAll("[data-admin-login-close]").forEach((button) => {
+    button.disabled = busy;
+  });
+}
+
+function closeAdminLoginModal() {
+  if (!adminLoginModal || adminLoginBusy) return;
+  adminLoginModal.hidden = true;
+  if (adminLoginPassword) {
+    adminLoginPassword.value = "";
+  }
+  setAdminLoginMessage();
+  document.body.classList.remove("modal-open");
+  if (adminLoginReturnFocus && typeof adminLoginReturnFocus.focus === "function") {
+    adminLoginReturnFocus.focus();
+  }
+  adminLoginReturnFocus = null;
+}
+
+function openAdminLoginModal(trigger = document.activeElement) {
+  if (!adminLoginModal || !adminLoginPassword) return;
+  adminLoginReturnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
+  adminLoginModal.hidden = false;
+  document.body.classList.add("modal-open");
+  adminLoginPassword.value = "";
+  setAdminLoginMessage();
+  window.requestAnimationFrame(() => adminLoginPassword.focus());
+}
+
+async function submitAdminLogin(password) {
+  const cleanedPassword = String(password || "");
+  if (!cleanedPassword) {
+    setAdminLoginMessage("请输入管理员密码。", "error");
+    adminLoginPassword?.focus();
+    return false;
+  }
+  setAdminLoginBusy(true);
+  try {
+    adminSession = await postJson(`${API_BASE}/admin/login`, { password: cleanedPassword });
+    renderAdminSession();
+    if (activeView === "deleted") loadDeletedItems();
+    setAdminLoginBusy(false);
+    closeAdminLoginModal();
+    return true;
+  } catch (error) {
+    setAdminLoginMessage(`登录失败：${error.message}`, "error");
+    setAdminLoginBusy(false);
+    adminLoginPassword?.focus();
+    return false;
+  }
+}
+
+async function loginAdmin(trigger) {
+  if (adminSession.authenticated) return true;
+  openAdminLoginModal(trigger);
+  return false;
+}
+
+async function logoutAdmin() {
+  adminLogoutButton.disabled = true;
+  try {
+    adminSession = await postJson(`${API_BASE}/admin/logout`, {});
+    renderAdminSession();
+    if (activeView === "deleted") loadDeletedItems();
+  } catch (error) {
+    alert(`退出失败：${error.message}`);
+  } finally {
+    adminLogoutButton.disabled = false;
+  }
+}
+
+async function restoreVideo(videoId) {
+  if (!adminSession.authenticated) {
+    await loginAdmin();
+    if (!adminSession.authenticated) return;
+  }
+  await postJson(`${API_BASE}/videos/${videoId}/restore`, {});
+  await Promise.allSettled([loadApiData(), loadDeletedItems()]);
+}
+
+async function restoreClaim(claimId) {
+  if (!adminSession.authenticated) {
+    await loginAdmin();
+    if (!adminSession.authenticated) return;
+  }
+  await postJson(`${API_BASE}/claims/${claimId}/restore`, {});
+  await Promise.allSettled([loadKnowledgePage(), loadDeletedItems()]);
+}
+
+function updateVideoPageState(payload = {}, append = false) {
+  const received = Array.isArray(payload.videos) ? payload.videos.length : 0;
+  videoPageState = {
+    total: normalizeCount(payload.total) ?? (append ? Math.max(videoPageState.total, videos.length) : received),
+    limit: normalizeCount(payload.limit) ?? VIDEO_PAGE_SIZE,
+    offset: (normalizeCount(payload.offset) ?? 0) + received,
+    hasMore: Boolean(payload.has_more),
+    loading: false,
+    error: "",
+  };
+}
+
+function updateProgressPageState(payload = {}, append = false) {
+  const received = Array.isArray(payload.videos) ? payload.videos.length : 0;
+  progressPageState = {
+    total: normalizeCount(payload.total) ?? (append ? Math.max(progressPageState.total, progressVideos.length) : received),
+    limit: normalizeCount(payload.limit) ?? VIDEO_PAGE_SIZE,
+    offset: (normalizeCount(payload.offset) ?? 0) + received,
+    hasMore: Boolean(payload.has_more),
+    loading: false,
+    error: "",
+  };
+}
+
+function updateKnowledgePageState(payload = {}, append = false) {
+  const received = Array.isArray(payload.claims) ? payload.claims.length : 0;
+  knowledgePageState = {
+    total: normalizeCount(payload.total) ?? (append ? Math.max(knowledgePageState.total, knowledgeClaims.length) : received),
+    limit: normalizeCount(payload.limit) ?? KNOWLEDGE_PAGE_SIZE,
+    offset: (normalizeCount(payload.offset) ?? 0) + received,
+    hasMore: Boolean(payload.has_more),
+    loading: false,
+    error: "",
+  };
+}
+
+function appendUniqueById(existing, incoming) {
+  const seen = new Set(existing.map((item) => item.id));
+  return [...existing, ...incoming.filter((item) => item.id && !seen.has(item.id))];
 }
 
 function applyApiCollections({ nextSources, nextVideos, nextKnowledgeClaims }) {
@@ -340,20 +640,72 @@ function applyBootstrapPayload(payload) {
     nextSources: payload.sources || [],
     nextVideos: (payload.videos || []).map(normalizeApiVideo),
   };
+  updateVideoPageState({ ...(payload.videos_page || {}), videos: payload.videos || [] });
   if (!knowledgePayload.deferred) {
     collections.nextKnowledgeClaims = (knowledgePayload.claims || []).map(normalizeKnowledgeClaim);
+    updateKnowledgePageState(knowledgePayload);
   }
   applyApiCollections(collections);
 }
 
-function loadKnowledgeClaimsInBackground(requestId) {
-  fetchApiJson("/knowledge")
+function buildQueryString(params) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "" && value !== "全部") {
+      query.set(key, value);
+    }
+  });
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
+function getKnowledgeApiParams(offset = 0) {
+  const query = document.querySelector("#knowledge-query")?.value.trim() || "";
+  const params = {
+    limit: KNOWLEDGE_PAGE_SIZE,
+    offset,
+    q: query,
+  };
+  if (activeKnowledgeCategory.type === "tag" || activeKnowledgeCategory.type === "stance") {
+    params.tag = activeKnowledgeCategory.value;
+  } else if (activeKnowledgeCategory.type === "stage") {
+    params.stage = activeKnowledgeCategory.value;
+  } else if (activeKnowledgeCategory.type === "stageGroup" && activeKnowledgeCategory.stages?.length) {
+    params.stages = activeKnowledgeCategory.stages.join(",");
+  }
+  return params;
+}
+
+function getVideoApiParams(offset = 0) {
+  return {
+    limit: VIDEO_PAGE_SIZE,
+    offset,
+    source_id: activeSourceFilter?.id || "",
+    platform: activeVideoPlatform,
+    creator: activeVideoCreator,
+  };
+}
+
+function getProgressApiParams(offset = 0) {
+  return {
+    limit: VIDEO_PAGE_SIZE,
+    offset,
+    state: activeProgressFilter,
+  };
+}
+
+function loadKnowledgePage({ append = false } = {}) {
+  const offset = append ? knowledgePageState.offset : 0;
+  knowledgePageState = { ...knowledgePageState, loading: true, error: "" };
+  renderKnowledge();
+  return fetchApiJson(`/knowledge${buildQueryString(getKnowledgeApiParams(offset))}`)
     .then((payload) => {
-      if (requestId !== apiLoadRequestId) return;
-      knowledgeClaims = (payload.claims || []).map(normalizeKnowledgeClaim);
+      const nextClaims = (payload.claims || []).map(normalizeKnowledgeClaim);
+      knowledgeClaims = append ? appendUniqueById(knowledgeClaims, nextClaims) : nextClaims;
+      updateKnowledgePageState(payload, append);
       apiStats = {
         ...apiStats,
-        claimCount: knowledgeClaims.length,
+        claimCount: normalizeCount(payload.total) ?? apiStats.claimCount,
       };
       renderOverview();
       renderDetail();
@@ -362,12 +714,67 @@ function loadKnowledgeClaimsInBackground(requestId) {
       writeApiCache();
     })
     .catch((error) => {
-      console.info("Knowledge data load failed:", error.message);
+      knowledgePageState = { ...knowledgePageState, loading: false, error: error.message };
+      renderKnowledge();
+      console.info("Knowledge page load failed:", error.message);
+    });
+}
+
+function loadVideoPage({ append = false } = {}) {
+  const offset = append ? videoPageState.offset : 0;
+  videoPageState = { ...videoPageState, loading: true, error: "" };
+  renderVideos();
+  return fetchApiJson(`/videos${buildQueryString(getVideoApiParams(offset))}`)
+    .then((payload) => {
+      const nextVideos = (payload.videos || []).map(normalizeApiVideo);
+      videos = sortVideosByPublishTime(append ? appendUniqueById(videos, nextVideos) : nextVideos);
+      updateVideoPageState(payload, append);
+      if (!selectedVideoId || !videos.some((video) => video.id === selectedVideoId)) {
+        selectedVideoId = videos[0]?.id || null;
+      }
+      renderAll();
+      writeApiCache();
+    })
+    .catch((error) => {
+      videoPageState = { ...videoPageState, loading: false, error: error.message };
+      renderVideos();
+      console.info("Video page load failed:", error.message);
+    });
+}
+
+function loadProgressPage({ append = false } = {}) {
+  const offset = append ? progressPageState.offset : 0;
+  progressPageState = { ...progressPageState, loading: true, error: "" };
+  renderProgress();
+  return fetchApiJson(`/progress-videos${buildQueryString(getProgressApiParams(offset))}`)
+    .then((payload) => {
+      const nextVideos = (payload.videos || []).map(normalizeApiVideo);
+      progressVideos = sortVideosByPublishTime(append ? appendUniqueById(progressVideos, nextVideos) : nextVideos);
+      updateProgressPageState(payload, append);
+      renderProgress();
+      writeApiCache();
+    })
+    .catch((error) => {
+      progressPageState = { ...progressPageState, loading: false, error: error.message };
+      renderProgress();
+      console.info("Progress page load failed:", error.message);
+    });
+}
+
+function loadProgressSummary() {
+  return fetchApiJson("/progress-summary")
+    .then((payload) => {
+      progressSummary = payload.counts || null;
+      renderProgress();
+      writeApiCache();
+    })
+    .catch((error) => {
+      console.info("Progress summary load failed:", error.message);
     });
 }
 
 async function fetchApiJson(path) {
-  const response = await fetch(`${API_BASE}${path}`);
+  const response = await fetch(`${API_BASE}${path}`, { credentials: "include" });
   if (!response.ok) throw new Error(`${path.replace(/^\//, "")} ${response.status}`);
   return response.json();
 }
@@ -392,8 +799,10 @@ async function loadApiData(options = {}) {
     renderAll();
     writeApiCache();
     if (bootstrapPayload.knowledge?.deferred) {
-      loadKnowledgeClaimsInBackground(requestId);
+      loadKnowledgePage();
     }
+    loadProgressSummary();
+    loadProgressPage();
     return;
   } catch (error) {
     console.info("Bootstrap data load failed, falling back to split endpoints:", error.message);
@@ -401,9 +810,8 @@ async function loadApiData(options = {}) {
 
   const healthPromise = fetchApiJson("/health");
   const sourcesPromise = fetchApiJson("/sources").then((payload) => payload.sources || []);
-  const videosPromise = fetchApiJson("/videos").then((payload) => sortVideosByPublishTime((payload.videos || []).map(normalizeApiVideo)));
-  const knowledgePromise = fetchApiJson("/knowledge")
-    .then((payload) => (payload.claims || []).map(normalizeKnowledgeClaim))
+  const videosPromise = fetchApiJson(`/videos${buildQueryString({ limit: VIDEO_PAGE_SIZE, offset: 0 })}`);
+  const knowledgePromise = fetchApiJson(`/knowledge${buildQueryString({ limit: KNOWLEDGE_PAGE_SIZE, offset: 0 })}`)
     .catch((error) => {
       console.info("Knowledge data load failed:", error.message);
       return null;
@@ -427,7 +835,8 @@ async function loadApiData(options = {}) {
     }
 
     if (videosResult.status === "fulfilled") {
-      videos = videosResult.value;
+      videos = sortVideosByPublishTime((videosResult.value.videos || []).map(normalizeApiVideo));
+      updateVideoPageState(videosResult.value);
     } else if (!videos.length) {
       throw videosResult.reason;
     } else {
@@ -444,18 +853,21 @@ async function loadApiData(options = {}) {
     apiStats = {
       ...apiStats,
       sourceCount: sources.length,
-      videoCount: videos.length,
+      videoCount: normalizeCount(videosResult.value.total) ?? videos.length,
       transcriptCount: videos.filter(hasVideoTranscript).length,
     };
     renderAll();
     writeApiCache();
+    loadProgressSummary();
+    loadProgressPage();
 
-    knowledgePromise.then((claims) => {
-      if (requestId !== apiLoadRequestId || !claims) return;
-      knowledgeClaims = claims;
+    knowledgePromise.then((payload) => {
+      if (requestId !== apiLoadRequestId || !payload) return;
+      knowledgeClaims = (payload.claims || []).map(normalizeKnowledgeClaim);
+      updateKnowledgePageState(payload);
       apiStats = {
         ...apiStats,
-        claimCount: knowledgeClaims.length,
+        claimCount: normalizeCount(payload.total) ?? knowledgeClaims.length,
       };
       renderOverview();
       renderDetail();
@@ -481,7 +893,7 @@ async function loadApiData(options = {}) {
 }
 
 async function loadVideoDetail(videoId) {
-  const detailResponse = await fetch(`${API_BASE}/videos/${videoId}`);
+  const detailResponse = await fetch(`${API_BASE}/videos/${videoId}`, { credentials: "include" });
   if (!detailResponse.ok) throw new Error(`video ${videoId} ${detailResponse.status}`);
   const detail = await detailResponse.json();
   const detailedVideo = normalizeApiVideo({
@@ -489,10 +901,27 @@ async function loadVideoDetail(videoId) {
     claim_count: detail.claims.length,
     claims: detail.claims,
   });
-  videos = videos.map((video) => (video.id === videoId ? detailedVideo : video));
+  videos = upsertVideoById(videos, detailedVideo);
+  progressVideos = upsertVideoById(progressVideos, detailedVideo);
   selectedVideoId = videoId;
   writeApiCache();
   return detailedVideo;
+}
+
+function upsertVideoById(items, nextVideo) {
+  if (!nextVideo?.id) return items;
+  let replaced = false;
+  const nextItems = items.map((video) => {
+    if (video.id !== nextVideo.id) return video;
+    replaced = true;
+    return { ...video, ...nextVideo };
+  });
+  return replaced ? nextItems : [nextVideo, ...nextItems];
+}
+
+function findDetailVideo(videoId) {
+  if (!videoId) return videos[0] || progressVideos[0] || null;
+  return videos.find((item) => item.id === videoId) || progressVideos.find((item) => item.id === videoId) || videos[0] || progressVideos[0] || null;
 }
 
 function setSourceMessage(message, type = "") {
@@ -519,6 +948,7 @@ function setIngestOpen(isOpen) {
 async function postJson(url, payload) {
   const response = await fetch(url, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -530,7 +960,19 @@ async function postJson(url, payload) {
 }
 
 async function getJson(url) {
-  const response = await fetch(url);
+  const response = await fetch(url, { credentials: "include" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || data.message || `${response.status}`);
+  }
+  return data;
+}
+
+async function deleteJson(url) {
+  const response = await fetch(url, {
+    method: "DELETE",
+    credentials: "include",
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.error || data.message || `${response.status}`);
@@ -652,6 +1094,57 @@ async function quickIngestVideo(payload, shouldExtract) {
   setIngestMessage("");
 }
 
+function removeVideoFromState(videoId) {
+  videos = videos.filter((video) => video.id !== videoId);
+  progressVideos = progressVideos.filter((video) => video.id !== videoId);
+  knowledgeClaims = knowledgeClaims.filter((claim) => claim.videoId !== videoId);
+  if (selectedVideoId === videoId) {
+    selectedVideoId = videos[0]?.id || progressVideos[0]?.id || null;
+  }
+}
+
+function removeClaimFromState(claimId, videoId) {
+  knowledgeClaims = knowledgeClaims.filter((claim) => claim.id !== claimId);
+  videos = videos.map((video) => {
+    if (video.id !== videoId) return video;
+    const claims = video.claims.filter((claim) => claim.id !== claimId);
+    return { ...video, claims, claimCount: Math.max(0, Number(video.claimCount || 0) - 1) };
+  });
+  progressVideos = progressVideos.map((video) => {
+    if (video.id !== videoId) return video;
+    const claims = video.claims.filter((claim) => claim.id !== claimId);
+    return { ...video, claims, claimCount: Math.max(0, Number(video.claimCount || 0) - 1) };
+  });
+}
+
+async function deleteVideo(videoId) {
+  if (!adminSession.authenticated) {
+    await loginAdmin();
+    if (!adminSession.authenticated) return;
+  }
+  const video = findDetailVideo(videoId);
+  if (!confirm(`确定删除这个视频及其观点吗？\n${video?.title || videoId}`)) return;
+  await deleteJson(`${API_BASE}/videos/${videoId}`);
+  removeVideoFromState(videoId);
+  await Promise.allSettled([loadProgressSummary(), loadKnowledgePage(), loadVideoPage()]);
+  renderAll();
+}
+
+async function deleteClaim(claimId, videoId) {
+  if (!adminSession.authenticated) {
+    await loginAdmin();
+    if (!adminSession.authenticated) return;
+  }
+  if (!confirm("确定删除这条观点吗？")) return;
+  const result = await deleteJson(`${API_BASE}/claims/${claimId}`);
+  removeClaimFromState(claimId, result.video_id || videoId);
+  await Promise.allSettled([loadProgressSummary(), loadKnowledgePage()]);
+  if (selectedVideoId) {
+    await loadVideoDetail(selectedVideoId).catch(() => {});
+  }
+  renderAll();
+}
+
 async function batchCollectVideos(payload) {
   if (!payload.batch_profile_url) {
     throw new Error("请填写主页链接");
@@ -754,8 +1247,80 @@ function setProgressRunButtonState(state, label) {
   if (!progressProcessPendingButton) return;
   const labelEl = progressProcessPendingButton.querySelector("[data-run-label]");
   progressProcessPendingButton.dataset.state = state;
-  progressProcessPendingButton.disabled = state === "starting" || state === "running";
+  progressProcessPendingButton.disabled = state === "starting";
   if (labelEl) labelEl.textContent = label;
+}
+
+function formatLogLine(line) {
+  return String(line || "")
+    .replace(/\s+(TranscriptGenerate raw excerpt:)/g, "\n  $1")
+    .replace(/\s+(response=\{)/g, "\n  $1")
+    .replace(/\s+(code=)/g, "\n  $1")
+    .replace(/\s+(msg=)/g, "\n  $1")
+    .replace(/\s+(status=)/g, "\n  $1")
+    .replace(/\s+(transcript_[a-z_]+:)/g, "\n  $1")
+    .replace(/\s+(best_candidate=)/g, "\n  $1")
+    .replace(/\s+(candidates=)/g, "\n  $1")
+    .replace(/\s+(selected=)/g, "\n  $1")
+    .replace(/\s+(\$\.[\w.[\]]+=)/g, "\n  $1")
+    .replace(/,\s+(\$\.[\w.[\]]+=)/g, ",\n  $1")
+    .replace(/\s+(\{'.+'\})$/g, "\n  $1");
+}
+
+function formatQueueLogs(logs) {
+  const lines = Array.isArray(logs) ? logs : [];
+  return lines.length ? lines.map(formatLogLine).join("\n") : "[--:--:--] 等待自动队列启动...";
+}
+
+function isLogScrolledNearBottom(element) {
+  if (!element) return true;
+  const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+  return distance < 48;
+}
+
+function getQueueLogKey(element) {
+  const rowPanel = element?.closest?.("[data-row-log-video-id]");
+  return rowPanel ? `row:${rowPanel.dataset.rowLogVideoId}` : "global";
+}
+
+function updateQueueLogFollowButton(key, panel) {
+  const button = panel?.querySelector?.("[data-log-follow-bottom]");
+  if (!button) return;
+  const isFollowing = queueLogFollowState[key] !== false;
+  button.hidden = isFollowing;
+  button.textContent = "跳到底部";
+}
+
+function attachQueueLogScrollState(element) {
+  if (!element || element.dataset.scrollStateReady === "true") return;
+  element.dataset.scrollStateReady = "true";
+  const key = getQueueLogKey(element);
+  queueLogFollowState[key] = queueLogFollowState[key] !== false;
+  element.addEventListener("scroll", () => {
+    queueLogFollowState[key] = isLogScrolledNearBottom(element);
+    updateQueueLogFollowButton(key, element.closest(".queue-log-panel"));
+  });
+  updateQueueLogFollowButton(key, element.closest(".queue-log-panel"));
+}
+
+function setLogTextPreservingScroll(element, text) {
+  if (!element) return;
+  attachQueueLogScrollState(element);
+  const key = getQueueLogKey(element);
+  const shouldFollow = queueLogFollowState[key] !== false;
+  const previousScrollTop = element.scrollTop;
+  element.textContent = text;
+  element.scrollTop = shouldFollow ? element.scrollHeight : previousScrollTop;
+  updateQueueLogFollowButton(key, element.closest(".queue-log-panel"));
+}
+
+function jumpLogToBottom(panel) {
+  const body = panel?.querySelector?.("pre");
+  if (!body) return;
+  const key = getQueueLogKey(body);
+  queueLogFollowState[key] = true;
+  body.scrollTop = body.scrollHeight;
+  updateQueueLogFollowButton(key, panel);
 }
 
 async function locateNextTranscriptVideo() {
@@ -817,7 +1382,7 @@ async function processPendingQueue(limit = 5) {
 
 function renderQueueStatus(status) {
   lastQueueStatus = status;
-  const bodyText = (status.logs || []).join("\n") || "[--:--:--] 等待自动队列启动...";
+  const bodyText = formatQueueLogs(status.logs);
   const processed = status.processed?.length || 0;
   const failed = status.failed?.length || 0;
   const metaText = status.job_id
@@ -830,8 +1395,7 @@ function renderQueueStatus(status) {
     } else {
     queueLogPanel.hidden = false;
     queueLogMeta.textContent = metaText;
-    queueLogBody.textContent = bodyText;
-    queueLogBody.scrollTop = queueLogBody.scrollHeight;
+    setLogTextPreservingScroll(queueLogBody, bodyText);
     }
   }
   const rowPanel = activeProgressLogVideoId ? document.querySelector(`[data-row-log-video-id="${activeProgressLogVideoId}"]`) : null;
@@ -842,8 +1406,7 @@ function renderQueueStatus(status) {
   if (rowTitle) rowTitle.textContent = resultText || "本条重试日志";
   if (rowMeta) rowMeta.textContent = metaText;
   if (rowBody) {
-    rowBody.textContent = bodyText;
-    rowBody.scrollTop = rowBody.scrollHeight;
+    setLogTextPreservingScroll(rowBody, bodyText);
   }
 }
 
@@ -951,11 +1514,29 @@ function getProgressStageTags(video) {
 function renderProgressStageTags(video) {
   const { tags } = getProgressStageTags(video);
   return tags
+    .map((tag) => {
+      const canOpenClaims = tag.key === "claims" && tag.state === "done" && (video.claimCount || video.claims.length) > 0;
+      const tagName = canOpenClaims ? "button" : "span";
+      const actionAttrs = canOpenClaims
+        ? ` type="button" data-video-id="${escapeAttr(video.id)}" aria-label="查看 ${escapeAttr(video.title)} 的观点"`
+        : "";
+      return `
+        <${tagName} class="progress-stage-tag" data-stage="${escapeAttr(tag.key)}" data-state="${escapeAttr(tag.state)}"${actionAttrs}>
+          <strong>${escapeHtml(tag.title)}</strong>
+          <em>${escapeHtml(tag.label)}</em>
+        </${tagName}>
+      `;
+    })
+    .join("");
+}
+
+function renderProgressTimeTags(video) {
+  return getVideoProgressTimeItems(video)
     .map(
-      (tag) => `
-        <span class="progress-stage-tag" data-stage="${tag.key}" data-state="${tag.state}">
-          <strong>${tag.title}</strong>
-          <em>${tag.label}</em>
+      (item) => `
+        <span class="progress-time-tag">
+          <strong>${escapeHtml(item.label)}</strong>
+          <em>${escapeHtml(item.value)}</em>
         </span>
       `,
     )
@@ -971,6 +1552,42 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
+function sanitizeUrl(value) {
+  const url = String(value ?? "").trim();
+  return /^https?:\/\//i.test(url) ? url : "#";
+}
+
+function safeUrl(value) {
+  return escapeHtml(sanitizeUrl(value));
+}
+
+function setupAutoLoadMore() {
+  if (!("IntersectionObserver" in window)) return;
+  if (!autoLoadObserver) {
+    autoLoadObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const target = autoLoadTargets[entry.target.id];
+          if (!target || target.view !== activeView || !target.canLoad()) return;
+          entry.target.disabled = true;
+          target.load();
+        });
+      },
+      { root: null, rootMargin: "360px 0px", threshold: 0.01 },
+    );
+  }
+  autoLoadObserver.disconnect();
+  Object.keys(autoLoadTargets).forEach((id) => {
+    const button = document.getElementById(id);
+    if (button) autoLoadObserver.observe(button);
+  });
+}
+
 async function pollQueueStatus() {
   const status = await getJson(`${API_BASE}/queue/status`);
   renderQueueStatus(status);
@@ -979,7 +1596,7 @@ async function pollQueueStatus() {
     renderQueueStatus(status);
   }
   if (queueLogMode === "global" && status.running) {
-    setProgressRunButtonState("running", "处理中...");
+    setProgressRunButtonState(status.cancel_requested ? "running" : "running", status.cancel_requested ? "暂停中..." : "暂停处理");
   }
   if (!status.running) {
     clearInterval(queueStatusTimer);
@@ -1013,6 +1630,21 @@ async function startQueueJob(limit = 20) {
     pollQueueStatus().catch((error) => setProgressMessage(`读取队列进度失败：${error.message}`, "error"));
   }, 2000);
   await pollQueueStatus();
+}
+
+async function cancelQueueJob() {
+  setProgressMessage("正在请求暂停队列...");
+  setProgressRunButtonState("starting", "暂停中...");
+  const status = await postJson(`${API_BASE}/queue/cancel`, {});
+  renderQueueStatus(status);
+  setProgressRunButtonState(status.running ? "running" : "idle", status.running ? "暂停中..." : "自动处理剩余");
+  setProgressMessage(status.running ? "已请求暂停，当前步骤结束后停止队列。" : "当前没有运行中的队列。", status.running ? "warn" : "ok");
+  if (!queueStatusTimer && status.running) {
+    queueStatusTimer = setInterval(() => {
+      pollQueueStatus().catch((error) => setProgressMessage(`读取队列进度失败：${error.message}`, "error"));
+    }, 2000);
+  }
+  return status;
 }
 
 async function startVideoRetryJob(videoId, force = false) {
@@ -1073,6 +1705,12 @@ function setView(view, options = {}) {
   if (options.updateHash !== false && window.location.hash !== `#${view}`) {
     history.pushState({ view }, "", `#${view}`);
   }
+  if (options.render !== false) {
+    renderCurrentView();
+  }
+  if (view === "deleted" && options.load !== false) {
+    loadDeletedItems();
+  }
 }
 
 function syncViewFromHash() {
@@ -1099,14 +1737,14 @@ function renderOverview() {
     .map((stage, index) => {
       const count = claims.filter((claim) => claim.stage === stage.name).length;
       return `
-        <article class="timeline-card" style="--accent: ${colors[index % colors.length]}">
-          <button type="button" aria-label="查看${stage.name}" data-knowledge-stage="${stage.name}"></button>
+        <article class="timeline-card" style="--accent: ${colors[index % colors.length]}" data-knowledge-stage="${escapeAttr(stage.name)}">
+          <button type="button" aria-label="查看${escapeAttr(stage.name)}" data-knowledge-stage="${escapeAttr(stage.name)}"></button>
           <span class="eyebrow">阶段 ${String(index + 1).padStart(2, "0")}</span>
-          <h3>${stage.name}</h3>
-          <p>${stage.desc}</p>
+          <h3>${escapeHtml(stage.name)}</h3>
+          <p>${escapeHtml(stage.desc)}</p>
           <div class="timeline-meta">
             <span class="chip">${count} 条观点</span>
-            <span class="chip">风险 ${stage.risk}</span>
+            <span class="chip">风险 ${escapeHtml(stage.risk)}</span>
           </div>
         </article>
       `;
@@ -1129,20 +1767,20 @@ function renderSources() {
     ...Object.keys(groupedSources).filter((platform) => !platformOrder.includes(platform)),
   ];
   const renderSourceCard = (source) => `
-    <article class="source-card" role="button" tabindex="0" data-source-filter-id="${source.id}" data-source-filter-name="${source.name}">
+    <article class="source-card" role="button" tabindex="0" data-source-filter-id="${escapeAttr(source.id)}" data-source-filter-name="${escapeAttr(source.name)}">
       <div>
-        <span class="status ${source.status === "active" ? "done" : ""}">${source.status}</span>
-        <h3>${source.name}</h3>
-        <p>${source.platform} / ${source.priority}</p>
+        <span class="status ${source.status === "active" ? "done" : ""}">${escapeHtml(getSourceStatusLabel(source.status))}</span>
+        <h3>${escapeHtml(source.name)}</h3>
+        <p>${escapeHtml(source.platform)} / ${escapeHtml(source.priority)}</p>
       </div>
       <div class="timeline-meta">
-        <span class="chip">${source.video_count || 0} 条视频</span>
-        <span class="chip">${source.pending_count || 0} 条文案待提取</span>
-        <span class="chip">${source.claim_count || 0} 条观点</span>
+        <span class="chip">${Number(source.video_count || 0)} 条视频</span>
+        <span class="chip">${Number(source.pending_count || 0)} 条文案待提取</span>
+        <span class="chip">${Number(source.claim_count || 0)} 条观点</span>
       </div>
       <footer>
-        <button class="primary-button small red" type="button" data-update-source-id="${source.id}">更新 5 条</button>
-        <a class="source-link compact-link" href="${source.profile_url || "#"}" target="_blank" rel="noreferrer">主页链接</a>
+        <button class="primary-button small red" type="button" data-update-source-id="${escapeAttr(source.id)}">更新 5 条</button>
+        <a class="source-link compact-link" href="${safeUrl(source.profile_url)}" target="_blank" rel="noreferrer">主页链接</a>
       </footer>
     </article>
   `;
@@ -1159,15 +1797,15 @@ function renderSources() {
               <section class="source-group">
                 <header class="source-group-head">
                   <div>
-                    <span class="status ${isDouyin ? loginType : ""}">${isDouyin ? loginLabel : platform}</span>
-                    <h3>${platform}</h3>
+                    <span class="status ${isDouyin ? loginType : ""}">${escapeHtml(isDouyin ? loginLabel : platform)}</span>
+                    <h3>${escapeHtml(platform)}</h3>
                     <p>${groupSources.length} 个博主 / ${groupVideoCount} 条视频 / ${groupPendingCount} 条文案待提取</p>
                   </div>
                   ${
                     isDouyin
                       ? `<div class="source-group-actions">
                           <button class="primary-button small" type="button" id="check-douyin-login">检查登录态</button>
-                          <button class="primary-button small" type="button" data-douyin-login-url="${loginProfileUrl}">登录抖音</button>
+                          <button class="primary-button small" type="button" data-douyin-login-url="${escapeAttr(loginProfileUrl)}">登录抖音</button>
                         </div>`
                       : ""
                   }
@@ -1188,8 +1826,8 @@ function renderPipeline() {
     .map(
       ([label, count]) => `
         <article class="pipeline-card">
-          <span>${label}</span>
-          <strong>${count}</strong>
+          <span>${escapeHtml(label)}</span>
+          <strong>${Number(count || 0)}</strong>
         </article>
       `,
     )
@@ -1212,8 +1850,8 @@ function renderVideoFilters() {
         ${platforms
           .map(
             (platform) => `
-              <button class="filter-button ${activeVideoPlatform === platform ? "active" : ""}" type="button" data-video-platform="${platform}">
-                ${platform}
+              <button class="filter-button ${activeVideoPlatform === platform ? "active" : ""}" type="button" data-video-platform="${escapeAttr(platform)}">
+                ${escapeHtml(platform)}
               </button>
             `,
           )
@@ -1226,8 +1864,8 @@ function renderVideoFilters() {
         ${creators
           .map(
             (creator) => `
-              <button class="filter-button ${activeVideoCreator === creator ? "active" : ""}" type="button" data-video-creator="${creator}">
-                ${creator}
+              <button class="filter-button ${activeVideoCreator === creator ? "active" : ""}" type="button" data-video-creator="${escapeAttr(creator)}">
+                ${escapeHtml(creator)}
               </button>
             `,
           )
@@ -1251,7 +1889,7 @@ function renderVideos() {
   const filterNotice = activeSourceFilter
     ? `
       <article class="video-filter-notice">
-        <span>当前来源：${activeSourceFilter.name}</span>
+        <span>当前来源：${escapeHtml(activeSourceFilter.name)}</span>
         <button class="primary-button small" type="button" id="clear-source-filter">显示全部</button>
       </article>
     `
@@ -1263,7 +1901,7 @@ function renderVideos() {
     emptyState = `
       <article class="result-card">
         <h3>${apiHealthState.dbAvailable === false ? "数据库当前不可用" : "视频接口连接失败"}</h3>
-        <p>${apiLoadState.error || "本地服务暂时不可用"}。</p>
+        <p>${escapeHtml(apiLoadState.error || "本地服务暂时不可用")}。</p>
         <footer>
           <button class="primary-button small red" type="button" id="retry-api-load">重新加载</button>
         </footer>
@@ -1276,31 +1914,55 @@ function renderVideos() {
           const hasTranscript = hasVideoTranscript(video);
           const hasClaims = video.claimCount > 0 || video.claims.length > 0;
           const isFiltered = video.status === "claims_filtered";
+          const isDone = ["transcript_saved", "claims_extracted", "claims_filtered", "claims_seeded"].includes(video.status) || hasClaims;
           const extractLabel = hasClaims ? "已提取" : isFiltered ? "已过滤" : hasTranscript ? "提取观点" : "待文案";
           const extractDisabled = hasClaims || isFiltered || !hasTranscript ? "disabled" : "";
           return `
         <article class="video-card">
           <div>
-            <span class="status ${video.status === "已入库" ? "done" : ""}">${video.status}</span>
-            <h3>${video.title}</h3>
-            <p>${video.creator} / ${video.platform}</p>
+            <span class="status ${isDone ? "done" : video.status === "transcript_failed" ? "failed" : ""}">${escapeHtml(getVideoStatusLabel(video.status))}</span>
+            <h3>${escapeHtml(video.title)}</h3>
+            <p>${escapeHtml(video.creator)} / ${escapeHtml(video.platform)}</p>
           </div>
           <div class="timeline-meta">
-            <span class="chip">${video.publishTime}</span>
+            <span class="chip">${escapeHtml(video.publishTime)}</span>
             <span class="chip">${video.shareUrl ? "有分享链" : "无分享链"}</span>
             <span class="chip">${video.claimCount} 条观点</span>
           </div>
           <footer>
-            <button class="primary-button small" type="button" data-video-id="${video.id}">查看详情</button>
-            <button class="primary-button small red" type="button" data-extract-video-id="${video.id}" ${extractDisabled}>${extractLabel}</button>
-            <a class="source-link compact-link" href="${video.sourceUrl}" target="_blank" rel="noreferrer">来源链接</a>
+            <button class="primary-button small" type="button" data-video-id="${escapeAttr(video.id)}">查看详情</button>
+            <button class="primary-button small red" type="button" data-extract-video-id="${escapeAttr(video.id)}" ${extractDisabled}>${escapeHtml(extractLabel)}</button>
+            ${
+              adminSession.authenticated
+                ? `<button class="primary-button small red" type="button" data-delete-video-id="${escapeAttr(video.id)}">删除视频</button>`
+                : ""
+            }
+            <a class="source-link compact-link" href="${safeUrl(video.sourceUrl)}" target="_blank" rel="noreferrer">来源链接</a>
           </footer>
         </article>
       `;
         })
         .join("")
     : emptyState;
-  document.querySelector("#video-grid").innerHTML = filterNotice + videoCards;
+  const paginationCard =
+    visibleVideos.length || videoPageState.loading || videoPageState.error
+      ? `
+        <article class="video-filter-notice">
+          <span>已显示 ${Math.min(videos.length, videoPageState.total || videos.length)} / ${videoPageState.total || videos.length} 条视频</span>
+          ${
+            videoPageState.error
+              ? `<span>加载失败：${escapeHtml(videoPageState.error)}</span>`
+              : videoPageState.loading
+                ? `<span>正在加载...</span>`
+                : videoPageState.hasMore
+                  ? `<button class="primary-button small" type="button" id="load-more-videos">加载更多</button>`
+                  : `<span>已加载全部</span>`
+          }
+        </article>
+      `
+      : "";
+  document.querySelector("#video-grid").innerHTML = filterNotice + videoCards + paginationCard;
+  setupAutoLoadMore();
 }
 
 function getVideoProgressState(video) {
@@ -1325,8 +1987,8 @@ function getVideoProgressState(video) {
 }
 
 function renderProgress() {
-  const sortedVideos = sortVideosByPublishTime(videos);
-  const counts = sortedVideos.reduce(
+  const sortedProgressVideos = sortVideosByPublishTime(progressVideos.length ? progressVideos : videos);
+  const localCounts = sortedProgressVideos.reduce(
     (acc, video) => {
       const state = getVideoProgressState(video);
       acc[state.key] = (acc[state.key] || 0) + 1;
@@ -1335,64 +1997,94 @@ function renderProgress() {
     },
     { 全部: 0, 缺链接: 0, 待文案: 0, 待观点: 0, 已完成: 0, 失败: 0 },
   );
+  const counts = progressSummary || localCounts;
   const tabs = ["全部", "缺链接", "待文案", "待观点", "已完成", "失败"];
   document.querySelector("#progress-tabs").innerHTML = tabs
     .map(
       (tab) => `
-        <button class="filter-button ${activeProgressFilter === tab ? "active" : ""}" type="button" data-progress-filter="${tab}">
-          ${tab} ${counts[tab] || 0}
+        <button class="filter-button ${activeProgressFilter === tab ? "active" : ""}" type="button" data-progress-filter="${escapeAttr(tab)}">
+          ${escapeHtml(tab)} ${counts[tab] || 0}
         </button>
       `,
     )
     .join("");
 
-  const visibleVideos = sortedVideos.filter((video) => {
-    const state = getVideoProgressState(video);
-    return activeProgressFilter === "全部" || state.key === activeProgressFilter;
-  });
+  const visibleVideos = sortedProgressVideos;
+  const paginationCard =
+    visibleVideos.length || progressPageState.loading || progressPageState.error
+      ? `
+        <article class="video-filter-notice">
+          <span>已显示 ${Math.min(progressVideos.length || visibleVideos.length, progressPageState.total || visibleVideos.length)} / ${
+            progressPageState.total || visibleVideos.length
+          } 条进度</span>
+          ${
+            progressPageState.error
+              ? `<span>加载失败：${escapeHtml(progressPageState.error)}</span>`
+              : progressPageState.loading
+                ? `<span>正在加载...</span>`
+                : progressPageState.hasMore
+                  ? `<button class="primary-button small" type="button" id="load-more-progress">加载更多</button>`
+                  : `<span>已加载全部</span>`
+          }
+        </article>
+      `
+      : "";
 
   document.querySelector("#progress-list").innerHTML = visibleVideos.length
-    ? visibleVideos
+    ? `${visibleVideos
         .map((video) => {
           const state = getVideoProgressState(video);
           const stageTags = renderProgressStageTags(video);
+          const timeTags = renderProgressTimeTags(video);
           const live = getLiveProgressStage(video);
+          const reasonLabel = getVideoReasonLabel(video);
           const isDone = state.key === "已完成";
           const rowLog =
             activeProgressLogVideoId === video.id
-              ? `
-                <details class="queue-log-panel row-log-panel" data-row-log-video-id="${video.id}" open>
+      ? `
+                <details class="queue-log-panel row-log-panel" data-row-log-video-id="${escapeAttr(video.id)}" open>
                   <summary>
                     <span data-row-log-title>${escapeHtml(lastQueueStatus && lastQueueStatus.job_id ? getQueueResultText(lastQueueStatus) || "本条重试日志" : "本条重试日志")}</span>
                     <small data-row-log-meta>${escapeHtml(lastQueueStatus?.job_id ? `${lastQueueStatus.job_id} / ${lastQueueStatus.running ? "运行中" : "已结束"}` : "准备启动...")}</small>
+                    <button class="log-follow-button" type="button" data-log-follow-bottom hidden>跳到底部</button>
                     <button class="log-close-button" type="button" data-close-row-log aria-label="关闭重试日志">关闭</button>
                   </summary>
-                  <pre data-row-log-body>${escapeHtml(lastQueueStatus?.logs?.length ? lastQueueStatus.logs.join("\n") : "[--:--:--] 等待重试启动...")}</pre>
+                  <pre data-row-log-body>${escapeHtml(lastQueueStatus?.logs?.length ? formatQueueLogs(lastQueueStatus.logs) : "[--:--:--] 等待重试启动...")}</pre>
                 </details>
               `
               : "";
           return `
             <article class="progress-card">
-              <span class="status ${isDone ? "done" : state.key === "失败" || state.key === "缺链接" ? "failed" : ""}">${state.label}</span>
+              <span class="status ${isDone ? "done" : state.key === "失败" || state.key === "缺链接" ? "failed" : ""}">${escapeHtml(state.label)}</span>
               <div class="progress-card-main">
-                <h3>${video.title}</h3>
-                <p>${video.creator} / ${video.publishTime}</p>
-                <p>${video.retryCount ? `重试 ${video.retryCount} 次${video.retryCount >= 3 ? "，需确认" : ""}` : "未重试"}${video.lastError ? ` / ${video.lastError}` : ""}</p>
+                <h3>${escapeHtml(video.title)}</h3>
+                <p class="progress-creator-line">博主：${escapeHtml(video.creator || "未记录")}</p>
+                <div class="progress-time-list" aria-label="视频时间">
+                  ${timeTags}
+                </div>
+                <p>${video.retryCount ? `重试 ${video.retryCount} 次${video.retryCount >= 3 ? "，需确认" : ""}` : "未重试"}</p>
+                ${reasonLabel ? `<p class="progress-reason-line">${escapeHtml(reasonLabel)}</p>` : ""}
                 ${live.line ? `<p class="progress-live-line">${escapeHtml(live.line)}</p>` : ""}
               </div>
               <div class="progress-steps" aria-label="处理阶段">
                 ${stageTags}
               </div>
               <footer>
-                <button class="primary-button small red" type="button" data-progress-retry-video-id="${video.id}" data-progress-retry-state="${state.key}">重试</button>
-                <button class="primary-button small" type="button" data-video-id="${video.id}">详情</button>
+                <button class="primary-button small red" type="button" data-progress-retry-video-id="${escapeAttr(video.id)}" data-progress-retry-state="${escapeAttr(state.key)}">重试</button>
+                <button class="primary-button small" type="button" data-video-id="${escapeAttr(video.id)}">详情</button>
+                ${
+                  adminSession.authenticated
+                    ? `<button class="primary-button small red" type="button" data-delete-video-id="${escapeAttr(video.id)}">删除视频</button>`
+                    : ""
+                }
               </footer>
             </article>
             ${rowLog}
           `;
         })
-        .join("")
+        .join("")}${paginationCard}`
     : `<article class="result-card"><h3>暂无视频</h3><p>当前筛选下没有需要处理的视频。</p></article>`;
+  setupAutoLoadMore();
 }
 
 function applySourceFilter(sourceId, sourceName) {
@@ -1402,70 +2094,103 @@ function applySourceFilter(sourceId, sourceName) {
   };
   activeVideoPlatform = "全部";
   activeVideoCreator = "全部";
-  renderVideos();
+  loadVideoPage();
   setView("videos");
 }
 
 function renderClaimCard(claim) {
   const reasonItems = Array.isArray(claim.reasons) ? claim.reasons : [claim.reasons];
+  const deleteButton =
+    adminSession.authenticated && claim.id
+      ? `<button class="primary-button small red" type="button" data-delete-claim-id="${escapeAttr(claim.id)}" data-delete-claim-video-id="${escapeAttr(claim.videoId || "")}">删除观点</button>`
+      : "";
   return `
     <article class="result-card claim-card">
       <span class="status ${claim.stance.includes("不推荐") ? "failed" : claim.stance.includes("推荐") ? "done" : ""}">
-        ${claim.stance}
+        ${escapeHtml(claim.stance)}
       </span>
-      <h3>${claim.object}</h3>
-      <p><strong>原文结论：</strong>${claim.conclusion}</p>
-      <p><strong>原文理由：</strong>${reasonItems.join("；") || "未提及"}</p>
-      <p><strong>条件：</strong>${claim.conditions || "未提及"}</p>
-      <p><strong>替代做法：</strong>${claim.alternatives || "未提及"}</p>
-      <p><strong>价格信息：</strong>${claim.priceInfo || "未提及"}</p>
+      <h3>${escapeHtml(claim.object)}</h3>
+      <p><strong>原文结论：</strong>${escapeHtml(claim.conclusion)}</p>
+      <p><strong>原文理由：</strong>${escapeHtml(reasonItems.join("；") || "未提及")}</p>
+      <p><strong>条件：</strong>${escapeHtml(claim.conditions || "未提及")}</p>
+      <p><strong>替代做法：</strong>${escapeHtml(claim.alternatives || "未提及")}</p>
+      <p><strong>价格信息：</strong>${escapeHtml(claim.priceInfo || "未提及")}</p>
       <footer class="timeline-meta">
-        <span class="chip">${claim.stage}</span>
-        ${claim.tags.map((tag) => `<span class="chip">${tag}</span>`).join("")}
-        <a class="chip link-chip" href="${claim.sourceUrl}" target="_blank" rel="noreferrer">来源视频</a>
+        <span class="chip">${escapeHtml(claim.stage)}</span>
+        ${claim.tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}
+        <a class="chip link-chip" href="${safeUrl(claim.sourceUrl)}" target="_blank" rel="noreferrer">来源视频</a>
+        ${deleteButton}
       </footer>
     </article>
   `;
 }
 
 function renderDetail() {
-  const video = videos.find((item) => item.id === selectedVideoId) || videos[0];
+  const video = findDetailVideo(selectedVideoId);
+  const detailActions = document.querySelector(".detail-actions");
   if (!video) {
     document.querySelector("#detail-platform").textContent = "暂无视频";
     document.querySelector("#detail-heading").textContent = "暂无视频详情";
     document.querySelector("#detail-creator").textContent = "-";
     document.querySelector("#detail-claim-count").textContent = "0";
-    document.querySelector("#detail-status").textContent = "empty";
+    document.querySelector("#detail-status").textContent = getVideoStatusLabel("empty");
     document.querySelector("#detail-link").href = "#";
     document.querySelector("#transcript-text").textContent = "暂无原始文案。";
     document.querySelector("#video-claims").innerHTML = `<article class="result-card"><h3>暂无观点</h3><p>当前还没有可展示的视频数据。</p></article>`;
+    detailActions?.querySelector("[data-detail-delete-video]")?.remove();
     return;
   }
+  detailActions?.querySelector("[data-detail-delete-video]")?.remove();
+  if (adminSession.authenticated) {
+    detailActions?.insertAdjacentHTML(
+      "beforeend",
+      `<button class="primary-button small red" type="button" data-detail-delete-video data-delete-video-id="${escapeAttr(video.id)}">删除视频</button>`,
+    );
+  }
+  const reasonLabel = getVideoReasonLabel(video);
   document.querySelector("#detail-platform").textContent = `${video.platform} Source`;
   document.querySelector("#detail-heading").textContent = video.title;
   document.querySelector("#detail-creator").textContent = video.creator;
   document.querySelector("#detail-claim-count").textContent = video.claims.length;
-  document.querySelector("#detail-status").textContent = video.status;
+  document.querySelector("#detail-status").textContent = reasonLabel ? `${getVideoStatusLabel(video.status)}｜${reasonLabel}` : getVideoStatusLabel(video.status);
   document.querySelector("#detail-link").href = video.sourceUrl;
+  const hasFullTranscript = video.transcript && !video.transcript.includes("未保存");
+  const transcriptFallback = "该视频尚未保存原始文案。";
   document.querySelector("#transcript-text").textContent = [
     `分享链接：${video.shareUrl || "未保存"}`,
     `分享文本：${video.shareText || "未保存"}`,
     "",
     "原始文案：",
-    video.transcript && !video.transcript.includes("未保存") ? video.transcript : "正在加载详情，或该视频尚未提取原始文案。",
+    hasFullTranscript ? video.transcript : transcriptFallback,
   ].join("\n");
-  document.querySelector("#video-claims").innerHTML = video.claims
-    .map((claim) =>
-      renderClaimCard({
-        ...claim,
-        sourceUrl: video.sourceUrl,
-      }),
-    )
-    .join("");
+  document.querySelector("#video-claims").innerHTML = video.claims.length
+    ? video.claims
+        .map((claim) =>
+          renderClaimCard({
+            ...claim,
+            sourceUrl: video.sourceUrl,
+          }),
+        )
+        .join("")
+    : renderEmptyClaimsState(video, reasonLabel);
+}
+
+function renderEmptyClaimsState(video, reasonLabel = "") {
+  if (video.status === "claims_filtered") {
+    return `<article class="result-card claim-empty-card"><h3>无可用观点</h3><p>${escapeHtml(reasonLabel || "该视频没有可沉淀为知识库观点的内容。")}</p></article>`;
+  }
+  if (video.status === "transcript_failed") {
+    return `<article class="result-card claim-empty-card"><h3>文案处理失败</h3><p>${escapeHtml(reasonLabel || "该视频尚未提取到可用文案。")}</p></article>`;
+  }
+  if (video.lastError) {
+    return `<article class="result-card claim-empty-card"><h3>观点提取未完成</h3><p>${escapeHtml(reasonLabel)}</p></article>`;
+  }
+  return `<article class="result-card claim-empty-card"><h3>暂无观点</h3><p>当前视频尚未提取观点，或正在等待处理。</p></article>`;
 }
 
 function claimMatchesKnowledgeCategory(claim, category) {
   if (!category || category.type === "all") return true;
+  if (category.type === "stage") return claim.stage === category.value;
   if (category.type === "stageGroup") return category.stages.includes(claim.stage);
   if (category.type === "tag") return claim.tags.includes(category.value) || claim.stage.includes(category.value);
   if (category.type === "stance") return claim.stance === category.value;
@@ -1506,8 +2231,8 @@ function renderKnowledgeCategories() {
   const groupTabs = knowledgeCategoryGroups
     .map(
       (group) => `
-        <button class="knowledge-group-toggle ${group.title === activeGroup.title ? "active" : ""}" type="button" data-knowledge-group="${group.title}">
-          <span>${group.title}</span>
+        <button class="knowledge-group-toggle ${group.title === activeGroup.title ? "active" : ""}" type="button" data-knowledge-group="${escapeAttr(group.title)}">
+          <span>${escapeHtml(group.title)}</span>
           <small>${group.items.length}</small>
         </button>
       `,
@@ -1518,9 +2243,9 @@ function renderKnowledgeCategories() {
       const count = claims.filter((claim) => claimMatchesKnowledgeCategory(claim, item)).length;
       const key = getKnowledgeCategoryKey(item);
       return `
-        <button class="stage-button ${activeKey === key ? "active" : ""}" type="button" data-knowledge-category-type="${item.type}" data-knowledge-category-value="${item.value}">
+        <button class="stage-button ${activeKey === key ? "active" : ""}" type="button" data-knowledge-category-type="${escapeAttr(item.type)}" data-knowledge-category-value="${escapeAttr(item.value)}">
           <span>${count}</span>
-          ${item.label}
+          ${escapeHtml(item.label)}
         </button>
       `;
     })
@@ -1542,15 +2267,196 @@ function renderKnowledge() {
 
   document.querySelector("#knowledge-results").innerHTML =
     claims.length > 0
-      ? claims.map(renderClaimCard).join("")
-      : `<article class="result-card"><h3>暂无匹配观点</h3><p>换一个流程阶段、标签或关键词试试。</p></article>`;
+      ? `${claims.map(renderClaimCard).join("")}
+        <article class="video-filter-notice">
+          <span>已显示 ${Math.min(knowledgeClaims.length, knowledgePageState.total || knowledgeClaims.length)} / ${
+            knowledgePageState.total || knowledgeClaims.length
+          } 条观点</span>
+          ${
+            knowledgePageState.error
+              ? `<span>加载失败：${escapeHtml(knowledgePageState.error)}</span>`
+              : knowledgePageState.loading
+                ? `<span>正在加载...</span>`
+                : knowledgePageState.hasMore
+                  ? `<button class="primary-button small" type="button" id="load-more-knowledge">加载更多</button>`
+                  : `<span>已加载全部</span>`
+          }
+        </article>`
+      : `<article class="result-card"><h3>${knowledgePageState.loading ? "正在加载观点..." : "暂无匹配观点"}</h3><p>${
+          knowledgePageState.error ? escapeHtml(knowledgePageState.error) : "换一个流程阶段、标签或关键词试试。"
+        }</p></article>`;
   renderKnowledgeCategories();
+  setupAutoLoadMore();
+}
+
+function renderDeleted() {
+  const container = document.querySelector("#deleted-list");
+  if (!container) return;
+  if (!adminSession.authenticated) {
+    container.innerHTML = `
+      <article class="result-card">
+        <h3>需要管理员登录</h3>
+        <p>登录后可以查看和恢复已删除的视频与观点。</p>
+        <footer><button class="primary-button small red" type="button" id="admin-login-button-inline">管理员登录</button></footer>
+      </article>
+    `;
+    return;
+  }
+  if (deletedItems.loading) {
+    container.innerHTML = `<article class="result-card"><h3>正在加载...</h3><p>正在读取已删除数据。</p></article>`;
+    return;
+  }
+  if (deletedItems.error) {
+    container.innerHTML = `<article class="result-card"><h3>加载失败</h3><p>${escapeHtml(deletedItems.error)}</p></article>`;
+    return;
+  }
+  const videoCards = deletedItems.videos
+    .map(
+      (video) => `
+        <article class="video-card">
+          <span class="status failed">已删除视频</span>
+          <h3>${escapeHtml(video.title || video.id)}</h3>
+          <p>${escapeHtml(video.creator || "未记录")} / ${escapeHtml(video.platform || "未记录")}</p>
+          <div class="timeline-meta">
+            <span class="chip">删除时间：${escapeHtml(formatEpochDateTime(video.deleted_at))}</span>
+            <span class="chip">${escapeHtml(video.delete_reason || "未记录原因")}</span>
+          </div>
+          <footer>
+            <button class="primary-button small red" type="button" data-restore-video-id="${escapeAttr(video.id)}">恢复视频</button>
+            <a class="source-link compact-link" href="${safeUrl(video.source_url)}" target="_blank" rel="noreferrer">来源链接</a>
+          </footer>
+        </article>
+      `,
+    )
+    .join("");
+  const claimCards = deletedItems.claims
+    .map(
+      (claim) => `
+        <article class="result-card claim-card">
+          <span class="status failed">已删除观点</span>
+          <h3>${escapeHtml(claim.object_name || claim.id)}</h3>
+          <p><strong>来源视频：</strong>${escapeHtml(claim.video_title || claim.video_id || "未记录")}</p>
+          <p><strong>原文结论：</strong>${escapeHtml(claim.original_conclusion || "未提及")}</p>
+          <footer class="timeline-meta">
+            <span class="chip">删除时间：${escapeHtml(formatEpochDateTime(claim.deleted_at))}</span>
+            <span class="chip">${claim.video_deleted_at ? "需先恢复视频" : "可恢复"}</span>
+            <button class="primary-button small red" type="button" data-restore-claim-id="${escapeAttr(claim.id)}" ${claim.video_deleted_at ? "disabled" : ""}>恢复观点</button>
+          </footer>
+        </article>
+      `,
+    )
+    .join("");
+  const hasDeletedItems = Boolean(videoCards || claimCards);
+  container.innerHTML = hasDeletedItems
+    ? `
+        <article class="video-filter-notice">
+          <span>已删除视频 ${deletedItems.videoTotal} 条 / 已删除观点 ${deletedItems.claimTotal} 条</span>
+        </article>
+        ${videoCards}
+        ${claimCards}
+      `
+    : `<article class="result-card"><h3>暂无已删除数据</h3><p>当前没有软删除的视频或观点。</p></article>`;
+}
+
+function renderCurrentView() {
+  if (activeView === "overview") {
+    renderOverview();
+  } else if (activeView === "sources") {
+    renderSources();
+  } else if (activeView === "videos") {
+    renderVideos();
+  } else if (activeView === "progress") {
+    renderProgress();
+  } else if (activeView === "detail") {
+    renderDetail();
+  } else if (activeView === "knowledge") {
+    renderKnowledge();
+  } else if (activeView === "deleted") {
+    renderDeleted();
+  }
+}
+
+function renderIfActive(...views) {
+  if (views.includes(activeView)) {
+    renderCurrentView();
+  }
 }
 
 document.addEventListener("click", (event) => {
   const navButton = event.target.closest(".nav-item");
   if (navButton) {
     setView(navButton.dataset.view);
+    return;
+  }
+
+  const adminLogin = event.target.closest("#admin-login-button");
+  if (adminLogin) {
+    loginAdmin(adminLogin);
+    return;
+  }
+
+  const adminLoginInline = event.target.closest("#admin-login-button-inline");
+  if (adminLoginInline) {
+    loginAdmin(adminLoginInline);
+    return;
+  }
+
+  const adminLoginClose = event.target.closest("[data-admin-login-close]");
+  if (adminLoginClose) {
+    closeAdminLoginModal();
+    return;
+  }
+
+  const adminLogout = event.target.closest("#admin-logout-button");
+  if (adminLogout) {
+    logoutAdmin();
+    return;
+  }
+
+  const refreshDeletedButton = event.target.closest("#refresh-deleted");
+  if (refreshDeletedButton) {
+    refreshDeletedButton.disabled = true;
+    loadDeletedItems().finally(() => {
+      refreshDeletedButton.disabled = false;
+    });
+    return;
+  }
+
+  const restoreVideoButton = event.target.closest("[data-restore-video-id]");
+  if (restoreVideoButton) {
+    restoreVideoButton.disabled = true;
+    restoreVideo(restoreVideoButton.dataset.restoreVideoId)
+      .catch((error) => alert(`恢复视频失败：${error.message}`))
+      .finally(() => {
+        restoreVideoButton.disabled = false;
+      });
+    return;
+  }
+
+  const restoreClaimButton = event.target.closest("[data-restore-claim-id]");
+  if (restoreClaimButton) {
+    restoreClaimButton.disabled = true;
+    restoreClaim(restoreClaimButton.dataset.restoreClaimId)
+      .catch((error) => alert(`恢复观点失败：${error.message}`))
+      .finally(() => {
+        restoreClaimButton.disabled = false;
+      });
+    return;
+  }
+
+  const deleteVideoButton = event.target.closest("[data-delete-video-id]");
+  if (deleteVideoButton) {
+    event.preventDefault();
+    deleteVideo(deleteVideoButton.dataset.deleteVideoId).catch((error) => alert(`删除视频失败：${error.message}`));
+    return;
+  }
+
+  const deleteClaimButton = event.target.closest("[data-delete-claim-id]");
+  if (deleteClaimButton) {
+    event.preventDefault();
+    deleteClaim(deleteClaimButton.dataset.deleteClaimId, deleteClaimButton.dataset.deleteClaimVideoId).catch((error) =>
+      alert(`删除观点失败：${error.message}`),
+    );
     return;
   }
 
@@ -1584,16 +2490,13 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  const stageButton = event.target.closest("[data-knowledge-stage]");
+  const stageButton = event.target.closest(".timeline-card[data-knowledge-stage], [data-knowledge-stage]");
   if (stageButton) {
     const stageName = stageButton.dataset.knowledgeStage;
-    const category =
-      knowledgeCategoryGroups
-        .flatMap((group) => group.items)
-        .find((item) => item.type === "stageGroup" && item.stages?.includes(stageName)) || findKnowledgeCategory("all", "全部");
-    activeKnowledgeCategory = category;
+    activeKnowledgeCategory = { type: "stage", value: stageName, label: stageName };
     activeKnowledgeGroupTitle = "按流程大类";
-    renderKnowledge();
+    loadKnowledgePage();
+    setKnowledgeFilterExpanded(false);
     setView("knowledge");
     return;
   }
@@ -1605,7 +2508,7 @@ document.addEventListener("click", (event) => {
     activeKnowledgeCategory = knowledgeCategoryGroups.find((group) => group.title === groupTitle)?.items[0] || findKnowledgeCategory("all", "全部");
     setKnowledgeFilterExpanded(true);
     renderKnowledgeCategories();
-    renderKnowledge();
+    loadKnowledgePage();
     return;
   }
 
@@ -1614,7 +2517,7 @@ document.addEventListener("click", (event) => {
     activeKnowledgeCategory =
       findKnowledgeCategory(categoryButton.dataset.knowledgeCategoryType, categoryButton.dataset.knowledgeCategoryValue) ||
       findKnowledgeCategory("all", "全部");
-    renderKnowledge();
+    loadKnowledgePage();
     setKnowledgeFilterExpanded(false);
     return;
   }
@@ -1622,7 +2525,9 @@ document.addEventListener("click", (event) => {
   const progressFilterButton = event.target.closest("[data-progress-filter]");
   if (progressFilterButton) {
     activeProgressFilter = progressFilterButton.dataset.progressFilter;
-    renderProgress();
+    progressVideos = [];
+    progressPageState = { ...progressPageState, offset: 0, hasMore: false, error: "" };
+    loadProgressPage();
     return;
   }
 
@@ -1631,7 +2536,7 @@ document.addEventListener("click", (event) => {
     activeSourceFilter = null;
     activeVideoPlatform = videoPlatformButton.dataset.videoPlatform;
     activeVideoCreator = "全部";
-    renderVideos();
+    loadVideoPage();
     return;
   }
 
@@ -1639,7 +2544,7 @@ document.addEventListener("click", (event) => {
   if (videoCreatorButton) {
     activeSourceFilter = null;
     activeVideoCreator = videoCreatorButton.dataset.videoCreator;
-    renderVideos();
+    loadVideoPage();
     return;
   }
 
@@ -1720,12 +2625,40 @@ document.addEventListener("click", (event) => {
   const clearSourceFilterButton = event.target.closest("#clear-source-filter");
   if (clearSourceFilterButton) {
     activeSourceFilter = null;
-    renderVideos();
+    loadVideoPage();
+    return;
+  }
+
+  const loadMoreVideosButton = event.target.closest("#load-more-videos");
+  if (loadMoreVideosButton) {
+    loadMoreVideosButton.disabled = true;
+    loadVideoPage({ append: true });
+    return;
+  }
+
+  const loadMoreKnowledgeButton = event.target.closest("#load-more-knowledge");
+  if (loadMoreKnowledgeButton) {
+    loadMoreKnowledgeButton.disabled = true;
+    loadKnowledgePage({ append: true });
+    return;
+  }
+
+  const loadMoreProgressButton = event.target.closest("#load-more-progress");
+  if (loadMoreProgressButton) {
+    loadMoreProgressButton.disabled = true;
+    loadProgressPage({ append: true });
     return;
   }
 
   const progressRunButton = event.target.closest("#progress-process-pending");
   if (progressRunButton) {
+    if (lastQueueStatus?.running) {
+      cancelQueueJob().catch((error) => {
+        setProgressRunButtonState("running", "暂停处理");
+        setProgressMessage(`暂停失败：${error.message}`, "error");
+      });
+      return;
+    }
     setProgressRunButtonState("starting", "启动中...");
     startQueueJob(5)
       .catch((error) => {
@@ -1737,6 +2670,14 @@ document.addEventListener("click", (event) => {
           setProgressRunButtonState("idle", "自动处理剩余");
         }
       });
+    return;
+  }
+
+  const logFollowButton = event.target.closest("[data-log-follow-bottom]");
+  if (logFollowButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    jumpLogToBottom(logFollowButton.closest(".queue-log-panel"));
     return;
   }
 
@@ -1809,14 +2750,29 @@ document.addEventListener("click", (event) => {
   }
 });
 
-document.querySelector("#knowledge-query").addEventListener("input", renderKnowledge);
+document.querySelector("#knowledge-query").addEventListener("input", () => {
+  window.clearTimeout(knowledgeSearchTimer);
+  knowledgeSearchTimer = window.setTimeout(() => loadKnowledgePage(), 250);
+});
 document.addEventListener("submit", (event) => {
+  if (event.target === adminLoginForm) {
+    event.preventDefault();
+    submitAdminLogin(adminLoginPassword?.value);
+    return;
+  }
   if (event.target !== ingestForm) return;
   event.preventDefault();
   saveVideoFromForm(ingestSubmitMode).catch((error) => {
     setIngestMessage(`失败：${error.message}`, "error");
   });
 });
+
+adminLoginPassword?.addEventListener("input", () => {
+  if (adminLoginMessage?.textContent) {
+    setAdminLoginMessage();
+  }
+});
+
 document.addEventListener("click", (event) => {
   const submitButton = event.target.closest("#ingest-form button[type='submit']");
   if (submitButton) {
@@ -1825,6 +2781,11 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && adminLoginModal && !adminLoginModal.hidden) {
+    event.preventDefault();
+    closeAdminLoginModal();
+    return;
+  }
   if (event.key !== "Enter" && event.key !== " ") return;
   const sourceFilterCard = event.target.closest("[data-source-filter-id]");
   if (!sourceFilterCard || event.target.closest("button, a")) return;
@@ -1833,20 +2794,16 @@ document.addEventListener("keydown", (event) => {
 });
 
 function renderAll() {
-  renderOverview();
-  renderSources();
-  renderVideos();
-  renderProgress();
-  renderDetail();
-  renderKnowledgeCategories();
-  renderKnowledge();
+  renderCurrentView();
 }
 
-setView(activeView, { updateHash: false });
-renderAll();
+setView(activeView, { updateHash: false, render: false });
+renderAdminSession();
+renderCurrentView();
 enforceHashView();
 window.requestAnimationFrame(enforceHashView);
 window.addEventListener("DOMContentLoaded", enforceHashView);
 window.addEventListener("popstate", syncViewFromHash);
 window.addEventListener("hashchange", syncViewFromHash);
+loadAdminSession();
 loadApiData();

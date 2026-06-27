@@ -7,7 +7,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="./assets/icons/favicon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles-v2.css?v=20260611-2" />
+    <link rel="stylesheet" href="./styles-v2.css?v=20260627-1" />
   </head>
   <body>
     <div class="app-shell">
@@ -43,6 +43,10 @@
             <span class="nav-icon" aria-hidden="true"><img src="./assets/icons/nav-knowledge.png" alt="" /></span>
             <span class="nav-label">知识库</span>
           </button>
+          <button class="nav-item" data-view="deleted" type="button">
+            <span class="nav-icon" aria-hidden="true"><img src="./assets/icons/nav-progress.png" alt="" /></span>
+            <span class="nav-label">已删除</span>
+          </button>
         </nav>
       </aside>
 
@@ -51,6 +55,11 @@
           <div>
             <p class="eyebrow">MVP Prototype</p>
             <h1 id="page-title">装修全流程知识地图</h1>
+          </div>
+          <div class="admin-panel" id="admin-panel" data-authenticated="false">
+            <span id="admin-status">管理员未登录</span>
+            <button class="primary-button small" id="admin-login-button" type="button">管理员登录</button>
+            <button class="primary-button small" id="admin-logout-button" type="button" hidden>退出</button>
           </div>
         </header>
 
@@ -169,6 +178,7 @@
             <summary>
               <span>自动队列日志</span>
               <small id="queue-log-meta">暂无任务</small>
+              <button class="log-follow-button" type="button" data-log-follow-bottom hidden>跳到底部</button>
             </summary>
             <pre id="queue-log-body">[--:--:--] 等待自动队列启动...</pre>
           </details>
@@ -246,9 +256,43 @@
             </section>
           </div>
         </section>
+
+        <section class="view" id="deleted-view" aria-labelledby="deleted-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="deleted-heading">已删除</h2>
+              <p>管理员用于查看和恢复软删除的视频与观点。</p>
+            </div>
+            <button class="primary-button small" id="refresh-deleted" type="button">刷新</button>
+          </div>
+          <div class="video-grid" id="deleted-list"></div>
+        </section>
       </main>
     </div>
 
-    <script src="./app.js?v=20260611-1"></script>
+    <div class="admin-login-modal" id="admin-login-modal" hidden>
+      <div class="admin-login-backdrop" data-admin-login-close></div>
+      <section class="admin-login-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-login-title" aria-describedby="admin-login-desc">
+        <div class="admin-login-head">
+          <div>
+            <p class="eyebrow">Admin Access</p>
+            <h2 id="admin-login-title">管理员登录</h2>
+          </div>
+          <button class="icon-button quiet" id="admin-login-close" type="button" aria-label="关闭登录弹窗" title="关闭" data-admin-login-close>×</button>
+        </div>
+        <p id="admin-login-desc">登录后可以删除、恢复视频和观点。</p>
+        <form id="admin-login-form" class="admin-login-form">
+          <label for="admin-login-password">管理员密码</label>
+          <input id="admin-login-password" type="password" autocomplete="current-password" placeholder="输入密码" />
+          <p class="form-message" id="admin-login-message" role="alert"></p>
+          <div class="admin-login-actions">
+            <button class="primary-button" type="button" data-admin-login-close>取消</button>
+            <button class="primary-button red" id="admin-login-submit" type="submit">登录</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script src="./app.js?v=20260627-1"></script>
   </body>
 </html>

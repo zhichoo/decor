@@ -485,6 +485,7 @@ a {
 .primary-button,
 .icon-button,
 .filter-button,
+.log-follow-button,
 .log-close-button {
   border: 1px solid var(--border-strong);
   border-radius: 0;
@@ -507,6 +508,7 @@ a {
 
 .primary-button:hover,
 .filter-button:hover,
+.log-follow-button:hover,
 .log-close-button:hover {
   background: var(--fg);
   color: var(--surface);
@@ -570,6 +572,116 @@ a {
 .icon-button.quiet {
   border-color: var(--border);
   color: var(--muted);
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.admin-login-modal[hidden] {
+  display: none;
+}
+
+.admin-login-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.admin-login-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, oklch(100% 0 0 / 0.04) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(0deg, oklch(100% 0 0 / 0.04) 1px, transparent 1px) 0 0 / 28px 28px,
+    oklch(14% 0.014 96 / 0.54);
+  backdrop-filter: blur(6px);
+}
+
+.admin-login-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  border: 1px solid var(--border-strong);
+  background:
+    linear-gradient(90deg, transparent calc(100% - 18px), color-mix(in oklch, var(--border) 76%, transparent) calc(100% - 18px) calc(100% - 17px), transparent calc(100% - 17px)),
+    linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
+  box-shadow: 0 28px 70px oklch(16% 0.018 94 / 0.32);
+}
+
+.admin-login-dialog::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  pointer-events: none;
+  border: 1px solid color-mix(in oklch, var(--border) 72%, transparent);
+}
+
+.admin-login-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 24px 12px;
+}
+
+.admin-login-head h2 {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.admin-login-dialog > p {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 0 24px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-login-form {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+  padding: 0 24px 24px;
+}
+
+.admin-login-form label {
+  color: var(--fg);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.admin-login-form input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--fg);
+  padding: 0 12px;
+  outline: none;
+}
+
+.admin-login-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
+.admin-login-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
 }
 
 .source-message,
@@ -1103,9 +1215,17 @@ textarea::placeholder {
 }
 
 .queue-log-panel summary small {
+  margin-left: auto;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.log-follow-button {
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .queue-log-panel pre {
@@ -1119,6 +1239,8 @@ textarea::placeholder {
   font-size: 12px;
   line-height: 1.7;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .progress-list {
@@ -1138,11 +1260,55 @@ textarea::placeholder {
   margin-top: 0;
 }
 
+.progress-creator-line {
+  margin-bottom: 8px !important;
+}
+
+.progress-time-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.progress-time-tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.progress-time-tag strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.progress-time-tag em {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-style: normal;
+}
+
 .progress-live-line {
   margin-top: 8px !important;
   color: var(--accent) !important;
   font-family: var(--font-mono);
   font-size: 12px !important;
+}
+
+.progress-reason-line {
+  margin-top: 8px !important;
+  border-left: 3px solid var(--danger);
+  padding-left: 10px;
+  color: var(--danger) !important;
+  font-size: 12px !important;
+  line-height: 1.65 !important;
+  overflow-wrap: anywhere;
 }
 
 .progress-steps {
@@ -1158,7 +1324,11 @@ textarea::placeholder {
   gap: 2px;
   min-height: 54px;
   padding: 8px;
+  border: 0;
   background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .progress-stage-tag::before {
@@ -1201,6 +1371,17 @@ textarea::placeholder {
 
 .progress-stage-tag[data-state="running"] em {
   color: var(--accent);
+}
+
+button.progress-stage-tag {
+  cursor: pointer;
+}
+
+button.progress-stage-tag:hover,
+button.progress-stage-tag:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+  background: color-mix(in oklch, var(--ok-soft) 72%, var(--surface));
 }
 
 .row-log-panel {
@@ -1295,6 +1476,14 @@ textarea::placeholder {
 
 .claim-card p strong {
   color: var(--fg);
+}
+
+.claim-empty-card {
+  border-left: 3px solid var(--danger);
+}
+
+.claim-empty-card p {
+  overflow-wrap: anywhere;
 }
 
 .search-page-head {
@@ -1583,6 +1772,15 @@ textarea::placeholder {
   .source-link {
     width: 100%;
     justify-content: center;
+  }
+
+  .admin-login-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-login-actions .primary-button {
+    width: 100%;
   }
 
   .topbar {
@@ -1888,6 +2086,7 @@ body::after,
 .primary-button,
 .icon-button,
 .filter-button,
+.log-follow-button,
 .log-close-button,
 .knowledge-group-toggle,
 .stage-button {
@@ -1898,6 +2097,7 @@ body::after,
 
 .primary-button:hover,
 .filter-button:hover,
+.log-follow-button:hover,
 .log-close-button:hover {
   background: var(--accent);
   border-color: var(--accent);
@@ -2769,6 +2969,8 @@ select,
 }
 
 .timeline .timeline-card button {
+  position: absolute;
+  inset: 0;
   z-index: 3;
 }
 
@@ -2937,4 +3139,22 @@ select,
     linear-gradient(180deg, oklch(12% 0.012 92 / 0.06) 0%, oklch(12% 0.012 92 / 0.22) 48%, oklch(12% 0.012 92 / 0.72) 100%),
     url("./assets/cards/videos/video-claims.jpg") center / cover no-repeat,
     var(--surface-2);
+}
+
+/* PC sidebar final pass: keep the primary navigation floating like the knowledge category rail. */
+@media (min-width: 1181px) {
+  .app-shell {
+    align-items: start;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    max-height: 100vh;
+    min-height: 100vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }
