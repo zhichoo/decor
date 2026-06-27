@@ -103,6 +103,35 @@ def add_published_at_ts(cur):
     )
 
 
+def add_transcript_meta(cur):
+    if not column_exists(cur, "videos", "has_transcript"):
+        execute(cur, "ALTER TABLE videos ADD COLUMN has_transcript boolean")
+    if not column_exists(cur, "videos", "transcript_length"):
+        execute(cur, "ALTER TABLE videos ADD COLUMN transcript_length integer")
+    execute(
+        cur,
+        """
+        UPDATE videos
+        SET
+          transcript_length = length(btrim(COALESCE(transcript_text, ''))),
+          has_transcript = length(btrim(COALESCE(transcript_text, ''))) > 0
+        WHERE transcript_length IS NULL OR has_transcript IS NULL
+        """,
+    )
+    execute(cur, "ALTER TABLE videos ALTER COLUMN has_transcript SET DEFAULT false")
+    execute(cur, "ALTER TABLE videos ALTER COLUMN transcript_length SET DEFAULT 0")
+
+
+def add_soft_delete_columns(cur):
+    for table in ("videos", "claims"):
+        if not column_exists(cur, table, "deleted_at"):
+            execute(cur, f"ALTER TABLE {table} ADD COLUMN deleted_at integer")
+        if not column_exists(cur, table, "deleted_by"):
+            execute(cur, f"ALTER TABLE {table} ADD COLUMN deleted_by text")
+        if not column_exists(cur, table, "delete_reason"):
+            execute(cur, f"ALTER TABLE {table} ADD COLUMN delete_reason text")
+
+
 def main():
     dsn = os.environ.get("DATABASE_URL", server.PG_DSN)
     conn = psycopg2.connect(dsn)
@@ -115,16 +144,36 @@ def main():
             migrate_jsonb_column(cur, "claims", "alternatives", "'[]'")
             migrate_jsonb_column(cur, "extraction_runs", "raw_response_json", "'{}'")
             add_published_at_ts(cur)
+            add_transcript_meta(cur)
+            add_soft_delete_columns(cur)
 
+            execute(cur, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_source_id ON videos(source_id)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_published_at ON videos(published_at)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_published_at_ts ON videos(published_at_ts DESC)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_page_order ON videos(published_at_ts DESC, created_at DESC, id DESC)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_progress_order ON videos(status, has_transcript, published_at_ts DESC, created_at DESC, id DESC)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_video_id ON claims(video_id)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_process_stage ON claims(process_stage)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_page_order ON claims(created_at DESC, id DESC)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_space_tags_gin ON claims USING gin(space_tags)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_topic_tags_gin ON claims USING gin(topic_tags)")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_extraction_runs_video_id ON extraction_runs(video_id)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_active_page_order ON videos(deleted_at, published_at_ts DESC, created_at DESC, id DESC)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_active_progress_order ON videos(deleted_at, status, has_transcript, published_at_ts DESC, created_at DESC, id DESC)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_active_video_id ON claims(deleted_at, video_id)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_active_stage_order ON claims(deleted_at, process_stage, created_at DESC, id DESC)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_search_trgm ON videos USING gin ((COALESCE(title, '') || ' ' || COALESCE(creator, '') || ' ' || COALESCE(platform, '')) gin_trgm_ops)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_search_trgm ON claims USING gin ((COALESCE(object_name, '') || ' ' || COALESCE(original_conclusion, '') || ' ' || COALESCE(conditions, '') || ' ' || COALESCE(original_reasons::text, '')) gin_trgm_ops)")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_active_page_order_partial ON videos(published_at_ts DESC, created_at DESC, id DESC) WHERE deleted_at IS NULL")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_active_progress_order_partial ON videos(status, has_transcript, published_at_ts DESC, created_at DESC, id DESC) WHERE deleted_at IS NULL")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_active_video_id_partial ON claims(video_id) WHERE deleted_at IS NULL")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_active_stage_order_partial ON claims(process_stage, created_at DESC, id DESC) WHERE deleted_at IS NULL")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_active_search_trgm ON videos USING gin ((COALESCE(title, '') || ' ' || COALESCE(creator, '') || ' ' || COALESCE(platform, '')) gin_trgm_ops) WHERE deleted_at IS NULL")
+            execute(cur, "CREATE INDEX IF NOT EXISTS idx_claims_active_search_trgm ON claims USING gin ((COALESCE(object_name, '') || ' ' || COALESCE(original_conclusion, '') || ' ' || COALESCE(conditions, '') || ' ' || COALESCE(original_reasons::text, '')) gin_trgm_ops) WHERE deleted_at IS NULL")
+            execute(cur, "ANALYZE videos")
+            execute(cur, "ANALYZE claims")
 
             add_constraint_if_missing(
                 cur,

@@ -1,4 +1,6 @@
 config.local.json
+transcriptgenerate-accounts.local.json
+.browser-profile/
 .venv/
 __pycache__/
 *.pyc

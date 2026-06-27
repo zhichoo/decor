@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,7 @@ import urllib.error
 import urllib.request
 import uuid
 from base64 import b64decode, b64encode
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,16 +46,20 @@ def load_local_config():
 
 load_local_config()
 
-PROMPT_VERSION = "extract_claims_v1"
+PROMPT_VERSION = "extract_claims_v3"
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_GROUP = os.environ.get("DEEPSEEK_GROUP", "").strip()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
+ADMIN_SESSION_COOKIE = "decor_admin_session"
+ADMIN_SESSION_MAX_AGE_SECONDS = int(os.environ.get("ADMIN_SESSION_MAX_AGE_SECONDS", str(7 * 24 * 60 * 60)))
 MAX_ERROR_MESSAGE_LENGTH = 2000
 MAX_TRANSCRIPT_DEBUG_LENGTH = 1500
 TRANSCRIPT_API_BASE_URL = "https://www.transcriptgenerate.com/prod-api"
 TRANSCRIPTGENERATE_TOKEN = os.environ.get("TRANSCRIPTGENERATE_TOKEN", "").strip()
 TRANSCRIPTGENERATE_EMAIL = os.environ.get("TRANSCRIPTGENERATE_EMAIL", "").strip()
 TRANSCRIPTGENERATE_PASSWORD = os.environ.get("TRANSCRIPTGENERATE_PASSWORD", "").strip()
+TRANSCRIPT_ACCOUNTS_PATH = ROOT / "transcriptgenerate-accounts.local.json"
 TRANSCRIPT_QUEUE_DELAY_SECONDS = float(os.environ.get("TRANSCRIPT_QUEUE_DELAY_SECONDS", "120"))
 AUTO_QUEUE_BATCH_LIMIT = int(os.environ.get("AUTO_QUEUE_BATCH_LIMIT", "20"))
 BOOTSTRAP_CACHE_TTL_SECONDS = float(os.environ.get("BOOTSTRAP_CACHE_TTL_SECONDS", "15"))
@@ -66,6 +73,9 @@ BOOTSTRAP_CACHE = {
     "timestamp": 0,
     "payload": None,
 }
+DEFAULT_VIDEO_LIMIT = 30
+DEFAULT_KNOWLEDGE_LIMIT = 50
+MAX_PAGE_LIMIT = 100
 QUEUE_JOB_LOCK = threading.RLock()
 QUEUE_JOB = {
     "job_id": None,
@@ -76,7 +86,10 @@ QUEUE_JOB = {
     "remaining": None,
     "started_at": None,
     "finished_at": None,
+    "cancel_requested": False,
 }
+VIDEO_PROCESS_LOCKS = {}
+VIDEO_PROCESS_LOCKS_LOCK = threading.RLock()
 DOUYIN_LOGIN_LOCK = threading.RLock()
 DOUYIN_LOGIN_JOB = {
     "running": False,
@@ -88,6 +101,9 @@ DOUYIN_LOGIN_JOB = {
     "started_at": None,
     "finished_at": None,
 }
+TRANSCRIPT_ACCOUNT_LOCK = threading.RLock()
+TRANSCRIPT_ACCOUNTS = []
+TRANSCRIPT_ACCOUNT_INDEX = 0
 DB_STATUS = {
     "available": False,
     "message": "database not initialized",
@@ -113,6 +129,33 @@ PROCESS_STAGES = [
     "入住验收",
     "待人工分类",
 ]
+PROCESS_STAGE_ALIASES = {
+    "验房": "收房验房",
+    "收房": "收房验房",
+    "设计": "设计规划",
+    "规划": "设计规划",
+    "拆改": "拆改阶段",
+    "水电": "水电阶段",
+    "防水": "防水阶段",
+    "瓦工": "瓦工阶段",
+    "泥瓦": "瓦工阶段",
+    "木工": "木工阶段",
+    "油工": "油工阶段",
+    "主材": "主材安装",
+    "定制": "定制柜安装",
+    "橱柜": "定制柜安装",
+    "厨卫": "厨卫安装",
+    "灯具": "灯具开关五金",
+    "开关五金": "灯具开关五金",
+    "软装": "家电家具软装",
+    "家具软装": "家电家具软装",
+    "家电": "家电家具软装",
+    "保洁": "开荒保洁",
+    "除醛": "通风除醛",
+    "通风": "通风除醛",
+    "入住": "入住验收",
+    "验收": "入住验收",
+}
 
 TAGS = {
     "space_tags": ["厨房", "卫生间", "客厅", "卧室", "阳台", "玄关", "全屋", "未提及"],
@@ -141,6 +184,9 @@ TAGS = {
 
 
 PG_DSN = os.environ.get("DATABASE_URL", "").strip()
+ADMIN_SESSION_SECRET = os.environ.get("ADMIN_SESSION_SECRET", "").strip() or hashlib.sha256(
+    f"{ADMIN_PASSWORD}:{PG_DSN}:{ROOT}".encode("utf-8")
+).hexdigest()
 
 
 def now():
@@ -172,7 +218,43 @@ def queue_snapshot():
             "remaining": QUEUE_JOB["remaining"],
             "started_at": QUEUE_JOB["started_at"],
             "finished_at": QUEUE_JOB["finished_at"],
+            "cancel_requested": QUEUE_JOB.get("cancel_requested", False),
         }
+
+
+def reserve_queue_job(prefix="job"):
+    job_id = f"{prefix}_{time.strftime('%Y%m%d_%H%M%S')}"
+    with QUEUE_JOB_LOCK:
+        if QUEUE_JOB["running"]:
+            return None
+        QUEUE_JOB.update(
+            {
+                "job_id": job_id,
+                "running": True,
+                "logs": [],
+                "processed": [],
+                "failed": [],
+                "remaining": None,
+                "started_at": now(),
+                "finished_at": None,
+                "cancel_requested": False,
+            }
+        )
+    return job_id
+
+
+def queue_cancel_requested():
+    with QUEUE_JOB_LOCK:
+        return bool(QUEUE_JOB.get("cancel_requested"))
+
+
+def request_queue_cancel():
+    with QUEUE_JOB_LOCK:
+        if not QUEUE_JOB["running"]:
+            return False
+        QUEUE_JOB["cancel_requested"] = True
+    queue_log("已请求暂停，当前步骤结束后停止队列")
+    return True
 
 
 def douyin_login_snapshot():
@@ -182,6 +264,69 @@ def douyin_login_snapshot():
 
 def json_dumps(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def parse_cookie_header(value):
+    cookies = {}
+    for part in str(value or "").split(";"):
+        if "=" not in part:
+            continue
+        key, raw_value = part.split("=", 1)
+        key = key.strip()
+        if key:
+            cookies[key] = raw_value.strip()
+    return cookies
+
+
+def sign_admin_session(payload):
+    return hmac.new(ADMIN_SESSION_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def make_admin_session_value():
+    issued_at = str(now())
+    nonce = secrets.token_urlsafe(18)
+    payload = f"{issued_at}.{nonce}"
+    return f"{payload}.{sign_admin_session(payload)}"
+
+
+def validate_admin_session_value(value):
+    parts = str(value or "").split(".")
+    if len(parts) != 3:
+        return False
+    issued_at, nonce, signature = parts
+    payload = f"{issued_at}.{nonce}"
+    expected = sign_admin_session(payload)
+    if not hmac.compare_digest(signature, expected):
+        return False
+    try:
+        issued_at_int = int(issued_at)
+    except ValueError:
+        return False
+    return 0 < issued_at_int <= now() and now() - issued_at_int <= ADMIN_SESSION_MAX_AGE_SECONDS
+
+
+def is_admin_request(handler):
+    cookies = parse_cookie_header(handler.headers.get("Cookie", ""))
+    return validate_admin_session_value(cookies.get(ADMIN_SESSION_COOKIE))
+
+
+def admin_session_payload(handler):
+    authenticated = is_admin_request(handler)
+    return {
+        "authenticated": authenticated,
+        "configured": bool(ADMIN_PASSWORD),
+        "max_age": ADMIN_SESSION_MAX_AGE_SECONDS,
+    }
+
+
+def require_admin(handler):
+    if not ADMIN_PASSWORD:
+        handler.send_error_json(503, "admin password is not configured")
+        return False
+    if not is_admin_request(handler):
+        handler.send_error_json(401, "admin login required")
+        return False
+    return True
 
 
 def json_loads(value, fallback):
@@ -233,9 +378,28 @@ def parse_published_at(value):
     return dt
 
 
+from psycopg2.pool import ThreadedConnectionPool
+
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    global _pool
+    if _pool is not None:
+        return _pool
+    with _pool_lock:
+        if _pool is not None:
+            return _pool
+        if not PG_DSN:
+            raise RuntimeError("DATABASE_URL is not configured")
+        _pool = ThreadedConnectionPool(1, 8, PG_DSN, cursor_factory=RealDictCursor)
+        return _pool
+
+
 class PGConnection:
-    def __init__(self):
-        self._conn = psycopg2.connect(PG_DSN, cursor_factory=RealDictCursor)
+    def __init__(self, conn):
+        self._conn = conn
         self._conn.autocommit = True
 
     def execute(self, sql, params=None):
@@ -247,7 +411,7 @@ class PGConnection:
         self._conn.commit()
 
     def close(self):
-        self._conn.close()
+        _get_pool().putconn(self._conn)
 
     def __enter__(self):
         return self
@@ -257,9 +421,9 @@ class PGConnection:
 
 
 def connect():
-    if not PG_DSN:
-        raise RuntimeError("DATABASE_URL is not configured")
-    return PGConnection()
+    pool = _get_pool()
+    conn = pool.getconn()
+    return PGConnection(conn)
 
 
 def check_database():
@@ -292,8 +456,47 @@ def require_fields(payload, fields):
         raise ValueError(f"missing fields: {', '.join(missing)}")
 
 
+@contextmanager
+def video_process_lock(video_id):
+    with VIDEO_PROCESS_LOCKS_LOCK:
+        lock = VIDEO_PROCESS_LOCKS.get(video_id)
+        if lock is None:
+            lock = threading.RLock()
+            VIDEO_PROCESS_LOCKS[video_id] = lock
+    with lock:
+        yield
+
+
+def query_int(query, key, default, minimum=0, maximum=None):
+    raw = (query.get(key) or [""])[0]
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = default
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def transcript_meta(transcript_text):
+    length = len((transcript_text or "").strip())
+    return length > 0, length
+
+
+def video_has_saved_transcript(video):
+    if not video:
+        return False
+    return bool(video.get("has_transcript")) or int(video.get("transcript_length") or 0) > 0 or bool(video.get("transcript_text"))
+
+
+def video_status_for_processing_error(video):
+    return "transcript_saved" if video_has_saved_transcript(video) else "transcript_failed"
+
+
 def row_to_video(row):
     transcript_text = row["transcript_text"] or ""
+    has_transcript, transcript_length = transcript_meta(transcript_text)
     return {
         "id": row["id"],
         "source_id": row["source_id"],
@@ -305,8 +508,8 @@ def row_to_video(row):
         "share_text": row["share_text"],
         "published_at": row["published_at"],
         "transcript_text": row["transcript_text"],
-        "has_transcript": bool(transcript_text.strip()),
-        "transcript_length": len(transcript_text.strip()),
+        "has_transcript": bool(row.get("has_transcript", has_transcript)),
+        "transcript_length": int(row.get("transcript_length", transcript_length) or 0),
         "transcript_source": row["transcript_source"],
         "transcript_created_at": row["transcript_created_at"],
         "retry_count": row["retry_count"],
@@ -391,6 +594,8 @@ def build_extract_prompt(video):
                 "creator": "string",
                 "main_topics": ["string"],
             },
+            "filter_reason": "none|speech_unclear|promotion_only|no_general_knowledge|brand_model_only|case_showcase_only|duplicate_or_too_thin",
+            "filter_message": "string",
             "claims": [
                 {
                     "object_name": "string",
@@ -408,21 +613,114 @@ def build_extract_prompt(video):
             ],
         },
     }
+    few_shot_example = {
+        "input": "铺瓷砖之前一定要先泡砖，吸水率高的砖要泡够两小时，不然上墙以后容易空鼓脱落。铺完之后留缝不能小于2毫米，用十字卡控制间距。",
+        "output": {
+            "video_summary": {
+                "title": "示例",
+                "source_url": "",
+                "platform": "",
+                "creator": "",
+                "main_topics": ["瓷砖铺贴", "空鼓预防"]
+            },
+            "filter_reason": "none",
+            "filter_message": "",
+            "claims": [
+                {
+                    "object_name": "瓷砖铺贴前泡砖",
+                    "stance": "明确推荐",
+                    "process_stage": "瓦工阶段",
+                    "space_tags": ["未提及"],
+                    "topic_tags": ["材料"],
+                    "original_conclusion": "吸水率高的砖铺前需泡水两小时，否则易空鼓脱落",
+                    "original_reasons": ["砖体吸水率高，不泡水会从水泥中大量吸水导致粘结失效"],
+                    "conditions": "适用于吸水率高的瓷砖",
+                    "alternatives": [],
+                    "price_info": "未提及",
+                    "source_video_url": ""
+                },
+                {
+                    "object_name": "瓷砖留缝",
+                    "stance": "价格建议",
+                    "process_stage": "瓦工阶段",
+                    "space_tags": ["未提及"],
+                    "topic_tags": ["材料"],
+                    "original_conclusion": "留缝不能小于2毫米，用十字卡控制间距",
+                    "original_reasons": [],
+                    "conditions": "未提及",
+                    "alternatives": [],
+                    "price_info": "未提及",
+                    "source_video_url": ""
+                }
+            ]
+        }
+    }
+    promotion_only_example = {
+        "input": "今天这款华凌518进群抢，三千出头包邮，优惠券限时，想要价格的打在评论区，兄弟们等我好消息。",
+        "output": {
+            "video_summary": {
+                "title": "示例",
+                "source_url": "",
+                "platform": "",
+                "creator": "",
+                "main_topics": ["促销推广"]
+            },
+            "filter_reason": "promotion_only",
+            "filter_message": "纯推广促销或带货引流，没有可复用的装修知识或产品选购重点",
+            "claims": []
+        }
+    }
+    speech_unclear_example = {
+        "input": "这个就那个啊，咱们家人们哈，它这个不串那个，零千平建一机进位送，反正就这么整，懂的都懂。",
+        "output": {
+            "video_summary": {
+                "title": "示例",
+                "source_url": "",
+                "platform": "",
+                "creator": "",
+                "main_topics": ["语义不清"]
+            },
+            "filter_reason": "speech_unclear",
+            "filter_message": "口语化或语音识别错误严重，无法可靠判断具体装修观点",
+            "claims": []
+        }
+    }
+
     return f"""你是装修视频文案结构化提取器。
 
 核心规则：
 1. 只能依据输入文案原文提取信息，禁止补充、推断、扩写、改写为新建议。
-2. 原文没有明确说到的信息，字段填写“未提及”或空数组。
+2. 原文没有明确说到的信息，字段填写"未提及"或空数组。
 3. 原文有多个装修对象时，拆成多条 claims。
 4. 原文有价格、条件、替代做法时，分别放入对应字段。
-5. process_stage 和 tags 只能从给定分类中选择；如果无法可靠归类，process_stage 填“待人工分类”，标签填“未提及”。
+5. process_stage 和 tags 只能从给定分类中选择；如果无法可靠归类，process_stage 填"待人工分类"，标签填"未提及"。
 6. 没有通用装修知识、也没有该类产品通用选购重点时，不生成 claims。
 7. 商业推广中的品牌名、系列名、具体型号不作为观点对象；如果原文讲的是产品，只提炼通用选购重点或关键指标，例如吸力、能耗、噪音、容量、滤芯成本、是否易清洁、是否环保、是否耐用。
 8. 如果一条内容只有品牌/型号宣传，没有通用装修知识或产品选购重点，直接跳过，不生成观点。
-9. 不要输出解释，不要输出 Markdown，只输出 JSON 对象。
+9. 不要输出解释，不要输出 Markdown，只输出 JSON 对象。第一个字符必须是 {{，最后一个字符必须是 }}。
+10. 文案来自语音识别，可能存在同音字或谐音错误（例如"空鼓"误识别为"空古"，"腻子"误识别为"泥子"）。请根据上下文语义理解原意进行提取；若某段文字因识别错误导致语义不可判断，对应字段填"未提及"，不生成错误观点。
+11. 先判断文案是否值得提取：如果整体是纯推广、促销、带货、进群、抢购、优惠券、粉丝福利、价格引流、联系方式引流，且没有通用装修知识或产品选购重点，claims 必须为空，filter_reason 填 promotion_only。
+12. 如果文案口语化严重、断句混乱、语音识别错乱、关键对象和结论无法可靠还原，claims 必须为空，filter_reason 填 speech_unclear，不要猜测或补写观点。
+13. 如果语义清楚但只是在展示生活、案例、品牌型号、价格活动，没有通用装修知识或产品选购重点，claims 必须为空，filter_reason 填 no_general_knowledge。
+14. 如果只有品牌、型号、系列、单品名称、价格口播，没有通用参数/指标/做法，claims 必须为空，filter_reason 填 brand_model_only。
+15. 如果只是展示装修案例、效果、风格、生活方式，没有明确可复用做法或选购指标，claims 必须为空，filter_reason 填 case_showcase_only。
+16. 如果内容过短、重复、碎片化，无法形成完整对象+结论，claims 必须为空，filter_reason 填 duplicate_or_too_thin。
+17. 有可提取观点时，filter_reason 填 none，filter_message 填空字符串；无观点时，claims 必须为空，filter_message 用一句中文说明过滤原因。
 
 系统分类：
 {json_dumps(taxonomy)}
+
+正向提取示例（仅演示格式和粒度，不作为内容参考）：
+输入文案：{few_shot_example["input"]}
+期望输出：{json_dumps(few_shot_example["output"])}
+
+纯推广过滤示例：
+输入文案：{promotion_only_example["input"]}
+期望输出：{json_dumps(promotion_only_example["output"])}
+
+口语/识别错误过滤示例：
+输入文案：{speech_unclear_example["input"]}
+期望输出：{json_dumps(speech_unclear_example["output"])}
 
 视频元数据：
 {json_dumps({
@@ -462,6 +760,7 @@ GENERIC_PRODUCT_HINTS = (
     "台盆",
 )
 GENERIC_KNOWLEDGE_HINTS = (
+    # 产品选购类
     "指标",
     "参数",
     "吸力",
@@ -486,6 +785,53 @@ GENERIC_KNOWLEDGE_HINTS = (
     "防水",
     "收纳",
     "预算",
+    # 施工工艺类
+    "铺贴",
+    "铺设",
+    "找平",
+    "空鼓",
+    "腻子",
+    "开槽",
+    "收口",
+    "美缝",
+    "留缝",
+    "坡度",
+    "上反",
+    "基层",
+    "打底",
+    "养护",
+    "泡水",
+    "闭水",
+    "涂刷",
+    "批刮",
+    "阴角",
+    "阳角",
+    "开裂",
+    "渗漏",
+    "验收",
+    "测试",
+    "下水",
+    "排水",
+    "地漏",
+    "回填",
+    "包管",
+    "拆墙",
+    "砌墙",
+    "开洞",
+    "打孔",
+    "固定",
+    "密封",
+    "防霉",
+    "防潮",
+    "隔音",
+    "保温",
+    "承重",
+    "配比",
+    "厚度",
+    "间距",
+    "水平",
+    "垂直",
+    "误差",
 )
 
 
@@ -497,6 +843,21 @@ def normalize_list_value(value):
     if not isinstance(value, list):
         return []
     return [str(item or "").strip() for item in value if str(item or "").strip()]
+
+
+def normalize_process_stage(value):
+    stage = normalize_text_value(value)
+    if stage in PROCESS_STAGES:
+        return stage
+    if stage in PROCESS_STAGE_ALIASES:
+        return PROCESS_STAGE_ALIASES[stage]
+    compact_stage = re.sub(r"[\s/／、,，]+", "", stage)
+    if compact_stage in PROCESS_STAGE_ALIASES:
+        return PROCESS_STAGE_ALIASES[compact_stage]
+    for alias, normalized in PROCESS_STAGE_ALIASES.items():
+        if alias and alias in compact_stage:
+            return normalized
+    return "待人工分类"
 
 
 def claim_is_all_unmentioned(claim):
@@ -550,6 +911,42 @@ def claim_is_brand_model_only(claim):
     return has_model_pattern and not claim_has_generic_knowledge(claim) and not has_product_class
 
 
+FILTER_REASON_MESSAGES = {
+    "promotion_only": "无有效内容：纯推广促销或带货引流，无通用装修知识或产品选购重点",
+    "speech_unclear": "无有效内容：口语化或识别错误严重，无法可靠提取观点",
+    "no_general_knowledge": "无有效内容：无通用装修知识或产品选购重点",
+    "brand_model_only": "无有效内容：只有品牌型号或单品价格，没有通用选购指标",
+    "case_showcase_only": "无有效内容：仅展示案例效果，没有可复用装修做法",
+    "duplicate_or_too_thin": "无有效内容：内容过短、重复或碎片化，无法形成可靠观点",
+}
+
+
+def normalize_filter_reason(value):
+    reason = normalize_text_value(value)
+    if reason in FILTER_REASON_MESSAGES:
+        return reason
+    return "no_general_knowledge"
+
+
+def dropped_claim_filter_reason(dropped_claims):
+    reasons = [item.get("reason") for item in dropped_claims or [] if isinstance(item, dict)]
+    if reasons and all(reason == "brand_model_only" for reason in reasons):
+        return "brand_model_only"
+    if reasons and all(reason in ("all_unmentioned", "invalid_claim_type") for reason in reasons):
+        return "speech_unclear"
+    return "no_general_knowledge"
+
+
+def build_filtered_message(extracted, dropped_claims):
+    reason = normalize_filter_reason((extracted or {}).get("filter_reason"))
+    if reason == "no_general_knowledge" and dropped_claims:
+        reason = dropped_claim_filter_reason(dropped_claims)
+    message = normalize_text_value((extracted or {}).get("filter_message"))
+    if message and reason != "none":
+        return message if message.startswith("无有效内容") else f"无有效内容：{message}"
+    return FILTER_REASON_MESSAGES.get(reason, FILTER_REASON_MESSAGES["no_general_knowledge"])
+
+
 def sanitize_claims(claims):
     filtered = []
     dropped = []
@@ -566,6 +963,7 @@ def sanitize_claims(claims):
         if not claim_has_generic_knowledge(claim):
             dropped.append({"reason": "no_generic_knowledge", "object_name": claim.get("object_name")})
             continue
+        claim["process_stage"] = normalize_process_stage(claim.get("process_stage"))
         filtered.append(claim)
     return filtered, dropped
 
@@ -612,6 +1010,35 @@ def normalize_deepseek_response(response_body):
     )
 
 
+def extract_json_object_from_text(text):
+    text = (text or "").strip()
+    start = text.find("{")
+    if start < 0:
+        return ""
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return ""
+
+
 def parse_deepseek_content(response_body):
     response_body = normalize_deepseek_response(response_body)
     text = (response_body or "").strip()
@@ -636,8 +1063,14 @@ def parse_deepseek_content(response_body):
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
+        extracted_json = extract_json_object_from_text(content)
+        if extracted_json:
+            try:
+                return json.loads(extracted_json)
+            except json.JSONDecodeError:
+                pass
         preview = content[:160].replace("\n", "\\n")
-        raise ValueError(f"deepseek_content_not_json: {preview}") from exc
+        raise ValueError(f"deepseek_content_not_json: 模型没有返回可解析的 JSON，开头内容：{preview}") from exc
 
 
 def call_deepseek(prompt):
@@ -648,7 +1081,7 @@ def call_deepseek(prompt):
     payload = {
         "model": DEEPSEEK_MODEL,
         "messages": [
-            {"role": "system", "content": "You extract structured JSON exactly as requested."},
+            {"role": "system", "content": "You extract structured JSON exactly as requested. Return only one JSON object. The first character must be { and the last character must be }. Do not explain."},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0,
@@ -685,14 +1118,22 @@ def call_deepseek(prompt):
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         if exc.code == 404 and not base_url.endswith("/v1"):
-            previous = os.environ.get("DEEPSEEK_BASE_URL")
-            os.environ["DEEPSEEK_BASE_URL"] = f"{base_url}/v1"
-            retry_body, retry_error = call_deepseek(prompt)
-            if previous is None:
-                os.environ.pop("DEEPSEEK_BASE_URL", None)
-            else:
-                os.environ["DEEPSEEK_BASE_URL"] = previous
-            return retry_body, retry_error
+            retry_url = f"{base_url}/v1/chat/completions"
+            retry_request = urllib.request.Request(
+                retry_url,
+                data=body,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(retry_request, timeout=120) as retry_response:
+                    return normalize_deepseek_response(retry_response.read().decode("utf-8")), None
+            except Exception as retry_exc:
+                python_error = f"deepseek_http_404_retry_failed: {retry_exc}"
+                return None, truncate_error(f"{python_error}; curl_fallback: {curl_error}")
         python_error = f"deepseek_http_{exc.code}: {detail}"
     except Exception as exc:
         python_error = f"deepseek_error: {exc}"
@@ -743,10 +1184,10 @@ def call_deepseek_with_curl(url, payload, api_key):
     return None, f"deepseek_http_{status_code}: {text}"
 
 
-def truncate_error(message):
-    if len(message) <= MAX_ERROR_MESSAGE_LENGTH:
+def truncate_error(message, limit=MAX_ERROR_MESSAGE_LENGTH):
+    if len(message) <= limit:
         return message
-    return f"{message[:MAX_ERROR_MESSAGE_LENGTH]}...[truncated]"
+    return f"{message[:limit]}...[truncated]"
 
 
 def extract_first_url(text):
@@ -829,16 +1270,26 @@ def save_collected_videos(conn, payload, items):
     )
 
     limit = int(payload.get("limit") or len(items))
-    saved = []
-    created_count = 0
-    duplicate_count = 0
+    candidates = []
     for index, item in enumerate(items[:limit]):
         if not isinstance(item, dict):
             continue
         source_url = canonical_video_url(item.get("source_url") or item.get("url") or "")
         if not source_url:
             continue
-        existing = conn.execute("SELECT id FROM videos WHERE source_url = %s", (source_url,)).fetchone()
+        candidates.append((index, item, source_url))
+    existing_urls = set()
+    if candidates:
+        existing_rows = conn.execute(
+            "SELECT source_url FROM videos WHERE source_url = ANY(%s)",
+            ([source_url for _, _, source_url in candidates],),
+        ).fetchall()
+        existing_urls = {row["source_url"] for row in existing_rows}
+
+    saved = []
+    created_count = 0
+    duplicate_count = 0
+    for index, item, source_url in candidates:
         title = (item.get("title") or "").strip() or f"{creator} 作品 {index + 1}"
         video_id = item.get("id") or new_id("vid")
         published_at = (item.get("published_at") or "").strip() or None
@@ -848,8 +1299,8 @@ def save_collected_videos(conn, payload, items):
             INSERT INTO videos (
               id, source_id, platform, creator, title, source_url, share_url, share_text, published_at, published_at_ts,
               transcript_text, transcript_source, transcript_created_at,
-              status, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              has_transcript, transcript_length, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(source_url) DO UPDATE SET
               source_id=excluded.source_id,
               title=excluded.title,
@@ -858,9 +1309,12 @@ def save_collected_videos(conn, payload, items):
               published_at=COALESCE(excluded.published_at, videos.published_at),
               published_at_ts=COALESCE(excluded.published_at_ts, videos.published_at_ts),
               status=CASE
-                WHEN videos.transcript_text IS NOT NULL AND videos.transcript_text != '' THEN videos.status
+                WHEN COALESCE(videos.has_transcript, false) THEN videos.status
                 ELSE videos.status
               END,
+              deleted_at=NULL,
+              deleted_by=NULL,
+              delete_reason=NULL,
               updated_at=excluded.updated_at
             """,
             (
@@ -877,16 +1331,19 @@ def save_collected_videos(conn, payload, items):
                 None,
                 None,
                 None,
+                False,
+                0,
                 "transcript_pending",
                 ts,
                 ts,
             ),
         )
-        row = conn.execute("SELECT * FROM videos WHERE source_url = %s", (source_url,)).fetchone()
+        row = conn.execute("SELECT * FROM videos WHERE source_url = %s AND deleted_at IS NULL", (source_url,)).fetchone()
         video = row_to_video(row)
-        video["dedupe_status"] = "duplicate" if existing else "created"
+        is_duplicate = source_url in existing_urls
+        video["dedupe_status"] = "duplicate" if is_duplicate else "created"
         saved.append(video)
-        if existing:
+        if is_duplicate:
             duplicate_count += 1
         else:
             created_count += 1
@@ -1046,10 +1503,160 @@ def transcript_decrypt(value):
         return text
 
 
+def normalize_transcript_account(account, index):
+    if not isinstance(account, dict):
+        return None
+    email = str(account.get("email") or "").strip()
+    token = str(account.get("token") or "").strip()
+    password = str(account.get("password") or "")
+    if not token and (not email or not password):
+        return None
+    return {
+        "id": account.get("id") or f"account_{index}",
+        "label": account.get("label") or email or f"账号 {index}",
+        "email": email,
+        "password": password,
+        "token": token,
+        "runtime_token": token,
+        "cooldown_minutes": int(account.get("cooldown_minutes") or 10),
+        "enabled": bool(account.get("enabled", True)),
+        "status": account.get("status") or "available",
+        "cooldown_until": 0,
+        "last_error": "",
+    }
+
+
+def load_transcript_accounts():
+    accounts = []
+    if TRANSCRIPT_ACCOUNTS_PATH.exists():
+        try:
+            payload = json.loads(TRANSCRIPT_ACCOUNTS_PATH.read_text(encoding="utf-8"))
+            for index, account in enumerate(payload.get("accounts") or [], start=1):
+                normalized = normalize_transcript_account(account, index)
+                if normalized:
+                    accounts.append(normalized)
+        except Exception as exc:
+            print(f"Failed to load {TRANSCRIPT_ACCOUNTS_PATH}: {exc}", file=sys.stderr)
+    if TRANSCRIPTGENERATE_TOKEN or (TRANSCRIPTGENERATE_EMAIL and TRANSCRIPTGENERATE_PASSWORD):
+        accounts.insert(
+            0,
+            {
+                "id": "config_default",
+                "label": TRANSCRIPTGENERATE_EMAIL or "config_default",
+                "email": TRANSCRIPTGENERATE_EMAIL,
+                "password": TRANSCRIPTGENERATE_PASSWORD,
+                "token": TRANSCRIPTGENERATE_TOKEN,
+                "runtime_token": TRANSCRIPTGENERATE_TOKEN,
+                "cooldown_minutes": 10,
+                "enabled": True,
+                "status": "available",
+                "cooldown_until": 0,
+                "last_error": "",
+            },
+        )
+    return accounts
+
+
+def get_transcript_accounts():
+    global TRANSCRIPT_ACCOUNTS
+    with TRANSCRIPT_ACCOUNT_LOCK:
+        if not TRANSCRIPT_ACCOUNTS:
+            TRANSCRIPT_ACCOUNTS = load_transcript_accounts()
+        return TRANSCRIPT_ACCOUNTS
+
+
+def transcript_account_label(account):
+    label = account.get("label") or account.get("email") or account.get("id") or "未命名账号"
+    email = account.get("email") or ""
+    return f"{label}<{email}>" if email and email not in label else label
+
+
+def transcript_response_text(response):
+    if isinstance(response, dict):
+        return " ".join(str(response.get(key) or "") for key in ("msg", "message", "error", "code"))
+    return str(response or "")
+
+
+def transcript_is_limit_response(response):
+    if isinstance(response, dict) and response.get("code") in (601, "601"):
+        return True
+    text = transcript_response_text(response).lower()
+    return any(
+        keyword in text
+        for keyword in (
+            "上限",
+            "额度",
+            "权益次数",
+            "次数不足",
+            "次数已用完",
+            "已用尽",
+            "获取更多次数",
+            "limit",
+            "quota",
+            "会员",
+            "premium",
+            "subscribe",
+        )
+    )
+
+
+def transcript_is_auth_response(response):
+    if isinstance(response, dict) and response.get("code") in (401, 403):
+        return True
+    text = transcript_response_text(response).lower()
+    return any(keyword in text for keyword in ("token", "登录", "未授权", "unauthorized", "forbidden", "401", "403"))
+
+
+def transcript_decode_error_detail(detail):
+    text = str(detail or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = text
+    if isinstance(parsed, str):
+        try:
+            return transcript_decrypt(parsed)
+        except Exception:
+            return parsed
+    return parsed
+
+
+def transcript_login_account(account):
+    if not account.get("email") or not account.get("password"):
+        raise RuntimeError("missing_email_password")
+    response = transcript_request_once(
+        "/login",
+        method="POST",
+        payload={
+            "username": account["email"],
+            "password": account["password"],
+            "appType": "transcript",
+            "appClient": "web",
+        },
+        auth=False,
+        retry_auth=False,
+        account=account,
+    )
+    if not isinstance(response, dict) or response.get("code") != 200 or not response.get("token"):
+        raise RuntimeError(f"login_failed: {response}")
+    account["runtime_token"] = str(response["token"]).strip()
+    account["status"] = "available"
+    account["last_error"] = ""
+    return account["runtime_token"]
+
+
 def transcript_login():
     global TRANSCRIPTGENERATE_TOKEN
     if not TRANSCRIPTGENERATE_EMAIL or not TRANSCRIPTGENERATE_PASSWORD:
         raise RuntimeError("transcriptgenerate_login_missing_credentials")
+    account = {
+        "label": TRANSCRIPTGENERATE_EMAIL,
+        "email": TRANSCRIPTGENERATE_EMAIL,
+        "password": TRANSCRIPTGENERATE_PASSWORD,
+        "runtime_token": "",
+    }
     response = transcript_request_once(
         "/login",
         method="POST",
@@ -1061,6 +1668,7 @@ def transcript_login():
         },
         auth=False,
         retry_auth=False,
+        account=account,
     )
     if not isinstance(response, dict) or response.get("code") != 200 or not response.get("token"):
         raise RuntimeError(f"transcriptgenerate_login_failed: {response}")
@@ -1077,11 +1685,82 @@ def transcript_auth_expired(response):
 
 
 def transcript_request(path, method="GET", payload=None, params=None):
-    return transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=True)
+    accounts = [account for account in get_transcript_accounts() if account.get("enabled", True)]
+    if not accounts:
+        return transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=True)
+
+    now_ts = time.time()
+    errors = []
+    with TRANSCRIPT_ACCOUNT_LOCK:
+        start_index = TRANSCRIPT_ACCOUNT_INDEX % len(accounts)
+    ordered_accounts = accounts[start_index:] + accounts[:start_index]
+    for account in ordered_accounts:
+        label = transcript_account_label(account)
+        if account.get("cooldown_until", 0) > now_ts:
+            errors.append(f"{label}: 冷却中")
+            continue
+        try:
+            return transcript_request_with_account(account, path, method=method, payload=payload, params=params)
+        except RuntimeError as exc:
+            errors.append(f"{label}: {truncate_error(str(exc), 220)}")
+            continue
+    raise RuntimeError("所有文案账号不可用：" + "；".join(errors))
 
 
-def transcript_request_once(path, method="GET", payload=None, params=None, auth=True, retry_auth=True):
-    if auth and not TRANSCRIPTGENERATE_TOKEN and TRANSCRIPTGENERATE_EMAIL and TRANSCRIPTGENERATE_PASSWORD:
+def transcript_request_with_account(account, path, method="GET", payload=None, params=None):
+    label = transcript_account_label(account)
+    if not account.get("runtime_token") and account.get("email") and account.get("password"):
+        transcript_login_account(account)
+    try:
+        response = transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=False, account=account)
+    except RuntimeError as exc:
+        detail = str(exc)
+        if "transcriptgenerate_http_401" in detail or "transcriptgenerate_http_403" in detail:
+            if account.get("email") and account.get("password"):
+                try:
+                    transcript_login_account(account)
+                    response = transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=False, account=account)
+                except Exception as login_exc:
+                    account["status"] = "auth_failed"
+                    account["last_error"] = truncate_error(str(login_exc))
+                    raise RuntimeError(f"{label} 登录失效且重登失败：{truncate_error(str(login_exc), 500)}") from login_exc
+            else:
+                account["status"] = "auth_failed"
+                account["last_error"] = truncate_error(detail)
+                raise RuntimeError(f"{label} token 失效且未配置密码") from exc
+        else:
+            account["status"] = "failed"
+            account["last_error"] = truncate_error(detail)
+            raise
+    if transcript_auth_expired(response):
+        if account.get("email") and account.get("password"):
+            try:
+                transcript_login_account(account)
+                response = transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=False, account=account)
+            except Exception as login_exc:
+                account["status"] = "auth_failed"
+                account["last_error"] = truncate_error(str(login_exc))
+                raise RuntimeError(f"{label} token 失效且重登失败：{truncate_error(str(login_exc), 500)}") from login_exc
+        else:
+            account["status"] = "auth_failed"
+            account["last_error"] = truncate_error(transcript_response_text(response))
+            raise RuntimeError(f"{label} token 失效且未配置密码")
+    if transcript_is_limit_response(response):
+        account["status"] = "limited"
+        account["cooldown_until"] = time.time() + int(account.get("cooldown_minutes") or 10) * 60
+        account["last_error"] = truncate_error(transcript_response_text(response))
+        raise RuntimeError(f"{label} 额度或账号上限：{truncate_error(transcript_response_text(response), 500)}")
+    account["status"] = "available"
+    account["last_error"] = ""
+    with TRANSCRIPT_ACCOUNT_LOCK:
+        global TRANSCRIPT_ACCOUNT_INDEX
+        if account in TRANSCRIPT_ACCOUNTS:
+            TRANSCRIPT_ACCOUNT_INDEX = TRANSCRIPT_ACCOUNTS.index(account)
+    return response
+
+
+def transcript_request_once(path, method="GET", payload=None, params=None, auth=True, retry_auth=True, account=None):
+    if account is None and auth and not TRANSCRIPTGENERATE_TOKEN and TRANSCRIPTGENERATE_EMAIL and TRANSCRIPTGENERATE_PASSWORD:
         transcript_login()
     url = f"{TRANSCRIPT_API_BASE_URL}{path}"
     headers = {
@@ -1091,8 +1770,9 @@ def transcript_request_once(path, method="GET", payload=None, params=None, auth=
         "Referer": "https://www.transcriptgenerate.com/zh-CN",
         "User-Agent": "Mozilla/5.0",
     }
-    if auth and TRANSCRIPTGENERATE_TOKEN:
-        headers["Authorization"] = f"Bearer {TRANSCRIPTGENERATE_TOKEN}"
+    token = account.get("runtime_token") if account else TRANSCRIPTGENERATE_TOKEN
+    if auth and token:
+        headers["Authorization"] = f"Bearer {token}"
     data = None
     if method == "GET" and params:
         query = "&".join(f"{quote(str(key), safe='')}={quote(str(value), safe='')}" for key, value in params.items())
@@ -1107,7 +1787,8 @@ def transcript_request_once(path, method="GET", payload=None, params=None, auth=
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"transcriptgenerate_http_{exc.code}: {detail}") from exc
+        decoded_detail = transcript_decode_error_detail(detail)
+        raise RuntimeError(f"transcriptgenerate_http_{exc.code}: {decoded_detail}") from exc
     except Exception as exc:
         raise RuntimeError(f"transcriptgenerate_error: {exc}") from exc
 
@@ -1117,7 +1798,7 @@ def transcript_request_once(path, method="GET", payload=None, params=None, auth=
         parsed = body
     if isinstance(parsed, str):
         parsed = transcript_decrypt(parsed)
-    if auth and retry_auth and transcript_auth_expired(parsed):
+    if account is None and auth and retry_auth and transcript_auth_expired(parsed):
         transcript_login()
         return transcript_request_once(path, method=method, payload=payload, params=params, auth=auth, retry_auth=False)
     return parsed
@@ -1239,6 +1920,33 @@ def summarize_transcript_candidates(candidates, limit=8):
     return ", ".join(summary) or "none"
 
 
+def transcript_candidate_label(candidate):
+    if not candidate:
+        return "暂未发现可用文案"
+    key = candidate.get("key") or ""
+    length = int(candidate.get("length") or 0)
+    if candidate.get("strong"):
+        label = "完整文案"
+    elif key in ("content", "title"):
+        label = "标题或简介"
+    elif candidate.get("weak"):
+        label = "短文案"
+    else:
+        label = "候选文本"
+    return f"{label}约 {length} 字"
+
+
+def summarize_transcript_progress(candidates, selected=None):
+    if selected:
+        return f"已拿到完整文案，长度 {int(selected.get('length') or 0)} 字"
+    best = select_transcript_candidate(candidates, min_length=1, allow_weak=True)
+    if best:
+        if best.get("strong"):
+            return f"服务已返回一段文案，长度 {int(best.get('length') or 0)} 字，仍未达到入库长度要求"
+        return f"服务已返回{transcript_candidate_label(best)}，还在等待完整文案"
+    return "服务还在处理，暂未返回文案内容"
+
+
 def extract_transcript_text(value):
     selected = select_transcript_candidate(collect_transcript_candidates(value), allow_weak=False)
     return selected["text"] if selected else ""
@@ -1257,9 +1965,11 @@ def fetch_transcript_from_transcriptgenerate(video_url, log=None):
     )
     task_id = extract_task_id(create_response)
     if not task_id:
+        if transcript_is_limit_response(create_response):
+            raise RuntimeError(f"transcriptgenerate_limit: {transcript_response_text(create_response)}")
         raise RuntimeError(f"transcript_task_id_missing: {create_response}")
     if log:
-        log(f"TranscriptGenerate createTask taskId={task_id} response={truncate_text(json_dumps(create_response), MAX_TRANSCRIPT_DEBUG_LENGTH)}")
+        log(f"文案服务已接收任务，任务号 {task_id}")
 
     last_response = None
     debug = {
@@ -1291,13 +2001,7 @@ def fetch_transcript_from_transcriptgenerate(video_url, log=None):
         debug["selected_length"] = poll_summary["selected_length"]
         debug["raw_excerpt"] = truncate_text(json_dumps(last_response), MAX_TRANSCRIPT_DEBUG_LENGTH)
         if log:
-            selected_text = f"{poll_summary['selected_path']}={poll_summary['selected_length']}" if selected else "none"
-            log(
-                f"TranscriptGenerate queryTask {poll_index + 1}: code={poll_summary['code']} msg={poll_summary['msg']} "
-                f"status={poll_summary['status']} candidates={poll_summary['candidate_summary']} selected={selected_text}"
-            )
-            if poll_index == 0 or selected:
-                log(f"TranscriptGenerate raw excerpt: {debug['raw_excerpt']}")
+            log(f"第 {poll_index + 1} 次检查文案服务：{summarize_transcript_progress(candidates, selected)}")
         if selected:
             return {
                 "task_id": task_id,
@@ -1313,7 +2017,7 @@ def fetch_transcript_from_transcriptgenerate(video_url, log=None):
         debug["selected_path"] = short_candidate["path"]
         debug["selected_length"] = short_candidate["length"]
         raise RuntimeError(
-            f"transcript_no_full_text: best_candidate={short_candidate['path']} length={short_candidate['length']} candidates={debug['candidate_summary']}"
+            f"文案服务没有返回完整文案，当前只拿到{transcript_candidate_label(short_candidate)}"
         )
     raise RuntimeError(f"transcript_task_timeout: {truncate_text(last_response)}")
 
@@ -1324,10 +2028,12 @@ def save_transcript_for_video(conn, row, log=None):
         raise RuntimeError("video_link_missing")
     transcript_result = fetch_transcript_from_transcriptgenerate(video_url, log=log)
     ts = now()
+    has_transcript, transcript_length = transcript_meta(transcript_result["transcript_text"])
     conn.execute(
         """
         UPDATE videos
         SET transcript_text = %s, transcript_source = %s, transcript_created_at = %s,
+            has_transcript = %s, transcript_length = %s,
             status = 'transcript_saved', updated_at = %s
         WHERE id = %s
         """,
@@ -1335,6 +2041,8 @@ def save_transcript_for_video(conn, row, log=None):
             transcript_result["transcript_text"],
             f"TranscriptGenerate/task:{transcript_result['task_id']}",
             ts,
+            has_transcript,
+            transcript_length,
             ts,
             row["id"],
         ),
@@ -1347,19 +2055,23 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
     limit = max(1, min(int(limit or 1), 20))
     processed = []
     failed = []
+    stopped = False
     for index in range(limit):
+        if queue_cancel_requested():
+            stopped = True
+            if log:
+                log("队列已暂停，不再继续处理下一条")
+            break
         row = conn.execute(
             """
             SELECT v.*, COUNT(c.id) AS claim_count
             FROM videos v
-            LEFT JOIN claims c ON c.video_id = v.id
+            LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
             WHERE v.status IN ('transcript_pending', 'transcript_saved', 'created', 'transcript_failed')
+              AND v.deleted_at IS NULL
               AND COALESCE(v.retry_count, 0) < 3
             GROUP BY v.id
-            HAVING (
-              (v.transcript_text IS NULL OR TRIM(v.transcript_text) = '')
-              OR (v.transcript_text IS NOT NULL AND TRIM(v.transcript_text) != '' AND COUNT(c.id) = 0)
-            )
+            HAVING (COALESCE(v.has_transcript, false) = false OR (COALESCE(v.has_transcript, false) = true AND COUNT(c.id) = 0))
             ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
             LIMIT 1
             """
@@ -1367,8 +2079,8 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
         if not row:
             break
         item = {"video_id": row["id"], "title": row["title"], "stage": "started"}
+        current = row
         try:
-            current = row
             conn.execute(
                 """
                 UPDATE videos
@@ -1379,19 +2091,19 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
                 (now(), now(), row["id"]),
             )
             if log:
-                log(f"{index + 1}/{limit} {row['id']} {row['title']} 开始")
-            if not (row["transcript_text"] or "").strip():
+                log(f"{index + 1}/{limit} 开始处理视频：{row['title']}")
+            if not row["has_transcript"]:
                 item["stage"] = "transcript"
                 if log:
-                    log(f"{index + 1}/{limit} {row['id']} 拉取文案中...")
+                    log(f"{index + 1}/{limit} 正在向文案服务提交视频链接...")
                 video, transcript_result = save_transcript_for_video(conn, row, log=log)
                 item["transcript_task_id"] = transcript_result["task_id"]
                 current = conn.execute("SELECT * FROM videos WHERE id = %s", (video["id"],)).fetchone()
                 if log:
                     log(f"{index + 1}/{limit} 文案成功，长度 {len(video['transcript_text'] or '')}")
-            if len((current["transcript_text"] or "").strip()) < MIN_TRANSCRIPT_LENGTH:
+            if int(current["transcript_length"] or 0) < MIN_TRANSCRIPT_LENGTH:
                 item["stage"] = "skipped"
-                item["error"] = f"文案过短，长度 {len((current['transcript_text'] or '').strip())}"
+                item["error"] = f"文案过短，长度 {int(current['transcript_length'] or 0)}"
                 conn.execute(
                     "UPDATE videos SET status = 'transcript_failed', last_error = %s, updated_at = %s WHERE id = %s",
                     (item["error"], now(), row["id"]),
@@ -1403,44 +2115,75 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
                 continue
             item["stage"] = "claims"
             if log:
-                log(f"{index + 1}/{limit} DeepSeek 提取观点中...")
+                log(f"{index + 1}/{limit} 正在分析文案并提取装修观点...")
             result = extract_claims_for_video(conn, row_to_video(current))
             item["claim_count"] = len(result.get("claims") or [])
-            item["stage"] = "completed"
-            processed.append(item)
-            if log:
-                log(f"{index + 1}/{limit} 完成，观点 {item['claim_count']} 条")
+            result_status = result.get("status")
+            if result_status == "completed":
+                item["stage"] = "completed"
+                processed.append(item)
+                if log:
+                    log(f"{index + 1}/{limit} 处理完成，新增观点 {item['claim_count']} 条")
+            elif result_status == "filtered":
+                item["stage"] = "filtered"
+                item["message"] = result.get("message") or "无有效内容"
+                processed.append(item)
+                if log:
+                    log(f"{index + 1}/{limit} 无有效内容：模型未提取到通用装修观点")
+            else:
+                item["stage"] = "failed"
+                item["error"] = result.get("message") or result_status or "观点提取失败"
+                conn.execute(
+                    "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
+                    (video_status_for_processing_error(current), item["error"], now(), row["id"]),
+                )
+                conn.commit()
+                failed.append(item)
+                if log:
+                    log(f"{index + 1}/{limit} 观点提取失败：{item['error']}")
         except Exception as exc:
             item["stage"] = "failed"
             item["error"] = truncate_error(str(exc))
             conn.execute(
-                "UPDATE videos SET status = 'transcript_failed', last_error = %s, updated_at = %s WHERE id = %s",
-                (item["error"], now(), row["id"]),
+                "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
+                (video_status_for_processing_error(current), item["error"], now(), row["id"]),
             )
             conn.commit()
             failed.append(item)
             if log:
                 log(f"{index + 1}/{limit} 失败：{item['error']}")
         if index < limit - 1 and delay_seconds > 0:
+            if queue_cancel_requested():
+                stopped = True
+                if log:
+                    log("队列已暂停，不再等待下一条")
+                break
             if log:
                 log(f"等待 {int(delay_seconds)} 秒后处理下一条...")
-            time.sleep(delay_seconds)
+            deadline = time.time() + delay_seconds
+            while time.time() < deadline:
+                if queue_cancel_requested():
+                    stopped = True
+                    if log:
+                        log("队列已暂停，不再继续处理下一条")
+                    break
+                time.sleep(min(1, max(0, deadline - time.time())))
+            if stopped:
+                break
     remaining = conn.execute(
         """
         SELECT COUNT(*) AS count
         FROM videos v
-        LEFT JOIN claims c ON c.video_id = v.id
+        LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
         WHERE v.status IN ('transcript_pending', 'transcript_saved', 'created', 'transcript_failed')
+          AND v.deleted_at IS NULL
           AND COALESCE(v.retry_count, 0) < 3
         GROUP BY v.id
-        HAVING (
-          (v.transcript_text IS NULL OR TRIM(v.transcript_text) = '')
-          OR (v.transcript_text IS NOT NULL AND TRIM(v.transcript_text) != '' AND COUNT(c.id) = 0)
-        )
+        HAVING (COALESCE(v.has_transcript, false) = false OR (COALESCE(v.has_transcript, false) = true AND COUNT(c.id) = 0))
         """
     ).fetchall()
     return {
-        "status": "completed",
+        "status": "cancelled" if stopped else "completed",
         "processed": processed,
         "failed": failed,
         "remaining": len(remaining),
@@ -1448,8 +2191,8 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
 
 
 def retry_video_from_transcript(video_id, log=None):
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+    with video_process_lock(video_id), connect() as conn:
+        row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
         if not row:
             raise RuntimeError("video not found")
         if log:
@@ -1458,6 +2201,7 @@ def retry_video_from_transcript(video_id, log=None):
             """
             UPDATE videos
             SET transcript_text = NULL, transcript_source = NULL, transcript_created_at = NULL,
+                has_transcript = false, transcript_length = 0,
                 retry_count = COALESCE(retry_count, 0) + 1,
                 last_retry_at = %s, last_error = NULL,
                 status = 'transcript_pending', updated_at = %s
@@ -1465,11 +2209,11 @@ def retry_video_from_transcript(video_id, log=None):
             """,
             (now(), now(), video_id),
         )
-        row = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+        row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
         if log:
             log(f"{video_id} 拉取文案中...")
         video, transcript_result = save_transcript_for_video(conn, row, log=log)
-        transcript_len = len((video["transcript_text"] or "").strip())
+        transcript_len = int(video["transcript_length"] or 0)
         if log:
             log(f"{video_id} 文案成功，长度 {transcript_len}")
         if transcript_len < MIN_TRANSCRIPT_LENGTH:
@@ -1484,16 +2228,25 @@ def retry_video_from_transcript(video_id, log=None):
             raise RuntimeError(f"文案过短，长度 {transcript_len}")
         if log:
             log(f"{video_id} DeepSeek 提取观点中...")
-        conn.execute("DELETE FROM claims WHERE video_id = %s", (video_id,))
+        conn.execute(
+            "UPDATE claims SET deleted_at = %s, deleted_by = %s, delete_reason = %s WHERE video_id = %s AND deleted_at IS NULL",
+            (now(), "system", "retry_full", video_id),
+        )
         result = extract_claims_for_video(conn, video)
-        conn.execute("UPDATE videos SET last_error = NULL, updated_at = %s WHERE id = %s", (now(), video_id))
+        if result.get("status") not in ("completed", "filtered"):
+            raise RuntimeError(result.get("message") or result.get("status") or "观点提取失败")
+        if result.get("status") == "completed":
+            conn.execute("UPDATE videos SET last_error = NULL, updated_at = %s WHERE id = %s", (now(), video_id))
         if log:
-            log(f"{video_id} 完成，观点 {len(result.get('claims') or [])} 条")
+            if result.get("status") == "filtered":
+                log(f"{video_id} 无有效内容：模型未提取到通用装修观点")
+            else:
+                log(f"{video_id} 完成，观点 {len(result.get('claims') or [])} 条")
         return result
 
 
-def run_queue_job(limit, delay_seconds):
-    job_id = f"job_{time.strftime('%Y%m%d_%H%M%S')}"
+def run_queue_job(limit, delay_seconds, job_id=None):
+    job_id = job_id or f"job_{time.strftime('%Y%m%d_%H%M%S')}"
     with QUEUE_JOB_LOCK:
         QUEUE_JOB.update(
             {
@@ -1505,6 +2258,7 @@ def run_queue_job(limit, delay_seconds):
                 "remaining": None,
                 "started_at": now(),
                 "finished_at": None,
+                "cancel_requested": False,
             }
         )
     queue_log(f"自动队列开始，本次目标 {limit} 条，间隔 {int(delay_seconds)} 秒")
@@ -1514,11 +2268,9 @@ def run_queue_job(limit, delay_seconds):
                 """
                 SELECT id, title, retry_count FROM videos
                 WHERE status IN ('transcript_pending', 'transcript_saved', 'created', 'transcript_failed')
+                  AND deleted_at IS NULL
                   AND COALESCE(retry_count, 0) >= 3
-                  AND (
-                    transcript_text IS NULL OR TRIM(transcript_text) = ''
-                    OR id NOT IN (SELECT DISTINCT video_id FROM claims)
-                  )
+                  AND (COALESCE(has_transcript, false) = false OR id NOT IN (SELECT DISTINCT video_id FROM claims WHERE deleted_at IS NULL))
                 ORDER BY published_at_ts DESC NULLS LAST, created_at DESC
                 """
             ).fetchall()
@@ -1529,7 +2281,10 @@ def run_queue_job(limit, delay_seconds):
             QUEUE_JOB["processed"] = result["processed"]
             QUEUE_JOB["failed"] = result["failed"]
             QUEUE_JOB["remaining"] = result["remaining"]
-        queue_log(f"自动队列结束，成功 {len(result['processed'])} 条，失败 {len(result['failed'])} 条，剩余 {result['remaining']} 条")
+        if result.get("status") == "cancelled":
+            queue_log(f"队列已暂停，成功 {len(result['processed'])} 条，失败 {len(result['failed'])} 条，剩余 {result['remaining']} 条")
+        else:
+            queue_log(f"自动队列结束，成功 {len(result['processed'])} 条，失败 {len(result['failed'])} 条，剩余 {result['remaining']} 条")
     except Exception as exc:
         queue_log(f"自动队列异常：{truncate_error(str(exc))}")
     finally:
@@ -1538,8 +2293,8 @@ def run_queue_job(limit, delay_seconds):
             QUEUE_JOB["finished_at"] = now()
 
 
-def run_video_retry_job(video_id):
-    job_id = f"job_{time.strftime('%Y%m%d_%H%M%S')}"
+def run_video_retry_job(video_id, job_id=None):
+    job_id = job_id or f"job_{time.strftime('%Y%m%d_%H%M%S')}"
     with QUEUE_JOB_LOCK:
         QUEUE_JOB.update(
             {
@@ -1551,27 +2306,32 @@ def run_video_retry_job(video_id):
                 "remaining": None,
                 "started_at": now(),
                 "finished_at": None,
+                "cancel_requested": False,
             }
         )
     queue_log(f"单条重试开始：{video_id}")
     item = {"video_id": video_id, "stage": "started"}
     try:
         result = retry_video_from_transcript(video_id, log=queue_log)
-        item["stage"] = "completed"
+        item["stage"] = "filtered" if result.get("status") == "filtered" else "completed"
         item["claim_count"] = len(result.get("claims") or [])
         with QUEUE_JOB_LOCK:
             QUEUE_JOB["processed"] = [item]
             QUEUE_JOB["failed"] = []
             QUEUE_JOB["remaining"] = None
-        queue_log(f"单条重试结束，成功 1 条，观点 {item['claim_count']} 条")
+        if result.get("status") == "filtered":
+            queue_log("单条重试结束，无有效内容")
+        else:
+            queue_log(f"单条重试结束，成功 1 条，观点 {item['claim_count']} 条")
     except Exception as exc:
         item["stage"] = "failed"
         item["error"] = truncate_error(str(exc))
         try:
             with connect() as conn:
+                row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
                 conn.execute(
-                    "UPDATE videos SET status = 'transcript_failed', last_error = %s, updated_at = %s WHERE id = %s",
-                    (item["error"], now(), video_id),
+                    "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
+                    (video_status_for_processing_error(row), item["error"], now(), video_id),
                 )
         except Exception:
             pass
@@ -1587,7 +2347,10 @@ def run_video_retry_job(video_id):
 
 
 def insert_claims(conn, video, run_id, claims):
-    conn.execute("DELETE FROM claims WHERE video_id = %s", (video["id"],))
+    conn.execute(
+        "UPDATE claims SET deleted_at = %s, deleted_by = %s, delete_reason = %s WHERE video_id = %s AND deleted_at IS NULL",
+        (now(), "system", "replace_extracted_claims", video["id"]),
+    )
     inserted = []
     for claim in claims:
         claim_id = new_id("claim")
@@ -1639,8 +2402,28 @@ def insert_claims(conn, video, run_id, claims):
 
 
 def extract_claims_for_video(conn, video):
+    with video_process_lock(video["id"]):
+        return extract_claims_for_video_locked(conn, video)
+
+
+def extract_claims_for_video_locked(conn, video):
     if not video["transcript_text"]:
         raise ValueError("transcript_text is empty")
+    transcript_length = int(video.get("transcript_length") or len((video.get("transcript_text") or "").strip()))
+    if transcript_length < MIN_TRANSCRIPT_LENGTH:
+        filtered_message = FILTER_REASON_MESSAGES["duplicate_or_too_thin"]
+        detail_message = f"{filtered_message}，当前长度 {transcript_length}"
+        conn.execute(
+            "UPDATE videos SET status = 'claims_filtered', last_error = %s, updated_at = %s WHERE id = %s",
+            (detail_message, now(), video["id"]),
+        )
+        return {
+            "run_id": None,
+            "status": "filtered",
+            "claims": [],
+            "dropped_claims": [{"reason": "duplicate_or_too_thin"}],
+            "message": detail_message,
+        }
 
     prompt = build_extract_prompt(video)
     input_hash = hashlib.sha256(video["transcript_text"].encode("utf-8")).hexdigest()
@@ -1668,16 +2451,33 @@ def extract_claims_for_video(conn, video):
         ),
     )
     if error:
+        error_message = truncate_error(error)
+        conn.execute(
+            "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
+            (video_status_for_processing_error(video), error_message, now(), video["id"]),
+        )
         return {
             "run_id": run_id,
             "status": status,
             "model": DEEPSEEK_MODEL,
             "prompt_version": PROMPT_VERSION,
             "input_hash": input_hash,
-            "message": "DeepSeek was not called or did not complete. Configure DEEPSEEK_API_KEY to run extraction.",
+            "message": error_message,
         }
 
-    extracted = parse_deepseek_content(raw_response)
+    try:
+        extracted = parse_deepseek_content(raw_response)
+    except ValueError as exc:
+        error_message = truncate_error(str(exc))
+        conn.execute(
+            "UPDATE extraction_runs SET status = %s, error_message = %s WHERE id = %s",
+            ("parse_failed", error_message, run_id),
+        )
+        conn.execute(
+            "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
+            (video_status_for_processing_error(video), error_message, now(), video["id"]),
+        )
+        raise
     sanitized_claims, dropped_claims = sanitize_claims(extracted.get("claims", []))
     claims = insert_claims(conn, video, run_id, sanitized_claims)
     if claims:
@@ -1687,7 +2487,7 @@ def extract_claims_for_video(conn, video):
         )
         return {"run_id": run_id, "status": "completed", "claims": claims, "dropped_claims": dropped_claims}
 
-    filtered_message = "无通用装修知识或产品选购重点，已过滤"
+    filtered_message = build_filtered_message(extracted, dropped_claims)
     conn.execute(
         "UPDATE videos SET status = 'claims_filtered', last_error = %s, updated_at = %s WHERE id = %s",
         (filtered_message, now(), video["id"]),
@@ -1701,43 +2501,192 @@ def extract_claims_for_video(conn, video):
     }
 
 
-def build_bootstrap_payload(conn):
-    video_rows = conn.execute(
-        """
-        WITH claim_counts AS (
-          SELECT video_id, COUNT(*) AS claim_count
-          FROM claims
-          GROUP BY video_id
+def build_video_filters(query):
+    clauses = ["v.deleted_at IS NULL"]
+    params = []
+    source_id = (query.get("source_id") or [""])[0].strip()
+    platform = (query.get("platform") or [""])[0].strip()
+    creator = (query.get("creator") or [""])[0].strip()
+    q = (query.get("q") or [""])[0].strip()
+    if source_id:
+        clauses.append("v.source_id = %s")
+        params.append(source_id)
+    if platform and platform != "全部":
+        clauses.append("v.platform = %s")
+        params.append(platform)
+    if creator and creator != "全部":
+        clauses.append("v.creator = %s")
+        params.append(creator)
+    if q:
+        clauses.append("(COALESCE(v.title, '') || ' ' || COALESCE(v.creator, '') || ' ' || COALESCE(v.platform, '') ILIKE %s)")
+        params.append(f"%{q}%")
+    return clauses, params
+
+
+def fetch_video_page(conn, query=None, limit=DEFAULT_VIDEO_LIMIT, offset=0):
+    query = query or {}
+    clauses, params = build_video_filters(query)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    total = conn.execute(f"SELECT COUNT(*) AS count FROM videos v {where}", params).fetchone()["count"]
+    rows = conn.execute(
+        f"""
+        WITH page_videos AS (
+          SELECT
+            v.id, v.source_id, v.platform, v.creator, v.title, v.source_url,
+            v.share_url, v.share_text, v.published_at,
+            v.has_transcript, v.transcript_length,
+            v.transcript_source, v.transcript_created_at,
+            v.retry_count, v.last_retry_at, v.last_error, v.status,
+            v.created_at, v.updated_at, v.published_at_ts
+          FROM videos v
+          {where}
+          ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC, v.id DESC
+          LIMIT %s OFFSET %s
+        ),
+        claim_counts AS (
+          SELECT c.video_id, COUNT(*) AS claim_count
+          FROM claims c
+          JOIN page_videos pv ON pv.id = c.video_id
+          WHERE c.deleted_at IS NULL
+          GROUP BY c.video_id
         )
         SELECT
           v.id, v.source_id, v.platform, v.creator, v.title, v.source_url,
           v.share_url, v.share_text, v.published_at,
+          COALESCE(v.has_transcript, false) AS has_transcript,
+          COALESCE(v.transcript_length, 0) AS transcript_length,
           v.transcript_source, v.transcript_created_at,
           v.retry_count, v.last_retry_at, v.last_error, v.status,
           v.created_at, v.updated_at,
-          0 AS transcript_length,
-          (
-            v.transcript_created_at IS NOT NULL
-            OR v.transcript_source IS NOT NULL
-            OR v.status IN ('transcript_saved', 'claims_extracted')
-          ) AS has_transcript,
           COALESCE(cc.claim_count, 0) AS claim_count
-        FROM videos v
+        FROM page_videos v
         LEFT JOIN claim_counts cc ON cc.video_id = v.id
-        ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
+        ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC, v.id DESC
+        """,
+        [*params, limit, offset],
+    ).fetchall()
+    return {
+        "videos": [row_to_video_summary(row) for row in rows],
+        "total": int(total or 0),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(rows) < int(total or 0),
+    }
+
+
+def progress_state_sql():
+    return """
+      CASE
+        WHEN v.status = 'transcript_failed' OR COALESCE(v.last_error, '') != '' THEN '失败'
+        WHEN v.status = 'claims_filtered' THEN '已完成'
+        WHEN COALESCE(v.source_url, '') = '' AND COALESCE(v.share_url, '') = '' THEN '缺链接'
+        WHEN COALESCE(cc.claim_count, 0) > 0 THEN '已完成'
+        WHEN COALESCE(v.has_transcript, false) THEN '待观点'
+        ELSE '待文案'
+      END
+    """
+
+
+def fetch_progress_video_page(conn, query=None, limit=DEFAULT_VIDEO_LIMIT, offset=0):
+    query = query or {}
+    state = (query.get("state") or ["全部"])[0].strip() or "全部"
+    clauses = []
+    params = []
+    if state != "全部":
+        clauses.append("state = %s")
+        params.append(state)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    state_expr = progress_state_sql()
+    base_sql = f"""
+        WITH claim_counts AS (
+          SELECT video_id, COUNT(*) AS claim_count
+          FROM claims
+          WHERE deleted_at IS NULL
+          GROUP BY video_id
+        ),
+        progress_videos AS (
+          SELECT
+            v.id, v.source_id, v.platform, v.creator, v.title, v.source_url,
+            v.share_url, v.share_text, v.published_at,
+            COALESCE(v.has_transcript, false) AS has_transcript,
+            COALESCE(v.transcript_length, 0) AS transcript_length,
+            v.transcript_source, v.transcript_created_at,
+            v.retry_count, v.last_retry_at, v.last_error, v.status,
+            v.created_at, v.updated_at, v.published_at_ts,
+            COALESCE(cc.claim_count, 0) AS claim_count,
+            {state_expr} AS state
+          FROM videos v
+          LEFT JOIN claim_counts cc ON cc.video_id = v.id
+          WHERE v.deleted_at IS NULL
+        )
+    """
+    total = conn.execute(f"{base_sql} SELECT COUNT(*) AS count FROM progress_videos {where}", params).fetchone()["count"]
+    rows = conn.execute(
+        f"""
+        {base_sql}
+        SELECT *
+        FROM progress_videos
+        {where}
+        ORDER BY published_at_ts DESC NULLS LAST, created_at DESC, id DESC
+        LIMIT %s OFFSET %s
+        """,
+        [*params, limit, offset],
+    ).fetchall()
+    return {
+        "videos": [row_to_video_summary(row) for row in rows],
+        "total": int(total or 0),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(rows) < int(total or 0),
+    }
+
+
+def fetch_progress_summary(conn):
+    rows = conn.execute(
+        f"""
+        WITH claim_counts AS (
+          SELECT video_id, COUNT(*) AS claim_count
+          FROM claims
+          WHERE deleted_at IS NULL
+          GROUP BY video_id
+        ),
+        states AS (
+          SELECT
+            {progress_state_sql()} AS state
+          FROM videos v
+          LEFT JOIN claim_counts cc ON cc.video_id = v.id
+          WHERE v.deleted_at IS NULL
+        )
+        SELECT state, COUNT(*) AS count
+        FROM states
+        GROUP BY state
         """
     ).fetchall()
-    videos = [row_to_video_summary(row) for row in video_rows]
-    source_stats = {}
-    for video in videos:
-        source_id = video.get("source_id")
-        if not source_id:
-            continue
-        stats = source_stats.setdefault(source_id, {"video_count": 0, "claim_count": 0, "pending_count": 0})
-        stats["video_count"] += 1
-        stats["claim_count"] += int(video.get("claim_count") or 0)
-        if video.get("status") == "transcript_pending":
-            stats["pending_count"] += 1
+    counts = {"全部": 0, "缺链接": 0, "待文案": 0, "待观点": 0, "已完成": 0, "失败": 0}
+    for row in rows:
+        state = row["state"]
+        count = int(row["count"] or 0)
+        counts[state] = count
+        counts["全部"] += count
+    return counts
+
+
+def build_bootstrap_payload(conn):
+    video_page = fetch_video_page(conn, limit=DEFAULT_VIDEO_LIMIT, offset=0)
+    source_stats_rows = conn.execute(
+        """
+        SELECT
+          v.source_id,
+          COUNT(DISTINCT v.id) AS video_count,
+          COUNT(DISTINCT v.id) FILTER (WHERE v.status = 'transcript_pending') AS pending_count,
+          COUNT(c.id) AS claim_count
+        FROM videos v
+        LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
+        WHERE v.source_id IS NOT NULL AND v.deleted_at IS NULL
+        GROUP BY v.source_id
+        """
+    ).fetchall()
+    source_stats = {row["source_id"]: dict(row) for row in source_stats_rows}
 
     source_rows = []
     if source_stats:
@@ -1758,8 +2707,16 @@ def build_bootstrap_payload(conn):
         item.update(source_stats.get(row["id"], {"video_count": 0, "claim_count": 0, "pending_count": 0}))
         sources.append(row_to_source(item))
 
-    claim_count = sum(int(video.get("claim_count") or 0) for video in videos)
-    transcript_count = sum(1 for video in videos if video.get("has_transcript"))
+    stats_row = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS video_count,
+          COUNT(*) FILTER (WHERE COALESCE(has_transcript, false)) AS transcript_count
+        FROM videos
+        WHERE deleted_at IS NULL
+        """
+    ).fetchone()
+    claim_count = conn.execute("SELECT COUNT(*) AS count FROM claims WHERE deleted_at IS NULL").fetchone()["count"]
 
     return {
         "health": {
@@ -1770,13 +2727,19 @@ def build_bootstrap_payload(conn):
             "model": DEEPSEEK_MODEL,
         },
         "sources": sources,
-        "videos": videos,
+        "videos": video_page["videos"],
+        "videos_page": {
+            "total": video_page["total"],
+            "limit": video_page["limit"],
+            "offset": video_page["offset"],
+            "has_more": video_page["has_more"],
+        },
         "knowledge": {"claims": [], "deferred": True},
         "stats": {
             "source_count": len(sources),
-            "video_count": len(videos),
-            "transcript_count": transcript_count,
-            "claim_count": claim_count,
+            "video_count": int(stats_row["video_count"] or 0),
+            "transcript_count": int(stats_row["transcript_count"] or 0),
+            "claim_count": int(claim_count or 0),
         },
     }
 
@@ -1813,9 +2776,15 @@ class AppHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(STATIC_ROOT or ROOT), **kwargs)
 
     def end_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        headers = getattr(self, "headers", None)
+        origin = headers.get("Origin") if headers else None
+        self.send_header("Access-Control-Allow-Origin", origin or "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        self.send_header("Vary", "Origin")
+        if not getattr(self, "path", "").startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -1837,6 +2806,9 @@ class AppHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/"):
             if STATIC_ROOT:
+                for header in ("If-Modified-Since", "If-None-Match"):
+                    if header in self.headers:
+                        del self.headers[header]
                 return super().do_GET()
             return self.send_error_json(404, "api server only")
         try:
@@ -1857,6 +2829,16 @@ class AppHandler(SimpleHTTPRequestHandler):
             traceback.print_exc()
             return self.send_error_json(500, "internal server error")
 
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/"):
+            return self.send_error_json(404, "not found")
+        try:
+            return self.handle_delete(parsed)
+        except Exception:
+            traceback.print_exc()
+            return self.send_error_json(500, "internal server error")
+
     def handle_get(self, parsed):
         path = parsed.path
         query = parse_qs(parsed.query)
@@ -1870,6 +2852,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "model": DEEPSEEK_MODEL,
                 }
             )
+
+        if path == "/api/admin/session":
+            return self.send_json(admin_session_payload(self))
 
         if path == "/api/douyin/login-status":
             snapshot = douyin_login_snapshot()
@@ -1910,6 +2895,47 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.send_json(get_cached_bootstrap_payload(conn))
 
         with connect() as conn:
+            if path == "/api/admin/deleted":
+                if not require_admin(self):
+                    return
+                limit = query_int(query, "limit", 50, minimum=1, maximum=MAX_PAGE_LIMIT)
+                offset = query_int(query, "offset", 0, minimum=0)
+                video_rows = conn.execute(
+                    """
+                    SELECT id, platform, creator, title, source_url, deleted_at, deleted_by, delete_reason, updated_at
+                    FROM videos
+                    WHERE deleted_at IS NOT NULL
+                    ORDER BY deleted_at DESC, id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (limit, offset),
+                ).fetchall()
+                claim_rows = conn.execute(
+                    """
+                    SELECT c.id, c.video_id, c.object_name, c.original_conclusion, c.deleted_at, c.deleted_by, c.delete_reason,
+                           v.title AS video_title, v.deleted_at AS video_deleted_at
+                    FROM claims c
+                    LEFT JOIN videos v ON v.id = c.video_id
+                    WHERE c.deleted_at IS NOT NULL
+                    ORDER BY c.deleted_at DESC, c.id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (limit, offset),
+                ).fetchall()
+                video_total = conn.execute("SELECT COUNT(*) AS count FROM videos WHERE deleted_at IS NOT NULL").fetchone()["count"]
+                claim_total = conn.execute("SELECT COUNT(*) AS count FROM claims WHERE deleted_at IS NOT NULL").fetchone()["count"]
+                return self.send_json(
+                    {
+                        "videos": [dict(row) for row in video_rows],
+                        "claims": [dict(row) for row in claim_rows],
+                        "video_total": int(video_total or 0),
+                        "claim_total": int(claim_total or 0),
+                        "limit": limit,
+                        "offset": offset,
+                        "has_more": offset + max(len(video_rows), len(claim_rows)) < max(int(video_total or 0), int(claim_total or 0)),
+                    }
+                )
+
             if path == "/api/sources":
                 rows = conn.execute(
                     """
@@ -1919,12 +2945,14 @@ class AppHandler(SimpleHTTPRequestHandler):
                         COUNT(*) AS video_count,
                         COUNT(*) FILTER (WHERE status = 'transcript_pending') AS pending_count
                       FROM videos
+                      WHERE deleted_at IS NULL
                       GROUP BY source_id
                     ),
                     source_claim_counts AS (
                       SELECT v.source_id, COUNT(c.id) AS claim_count
                       FROM videos v
-                      JOIN claims c ON c.video_id = v.id
+                      JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
+                      WHERE v.deleted_at IS NULL
                       GROUP BY v.source_id
                     )
                     SELECT
@@ -1943,39 +2971,24 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"sources": [row_to_source(row) for row in rows]})
 
             if path == "/api/videos":
-                rows = conn.execute(
-                    """
-                    WITH claim_counts AS (
-                      SELECT video_id, COUNT(*) AS claim_count
-                      FROM claims
-                      GROUP BY video_id
-                    )
-                    SELECT
-                      v.id, v.source_id, v.platform, v.creator, v.title, v.source_url,
-                      v.share_url, v.share_text, v.published_at,
-                      v.transcript_source, v.transcript_created_at,
-                      v.retry_count, v.last_retry_at, v.last_error, v.status,
-                      v.created_at, v.updated_at,
-                      0 AS transcript_length,
-                      (
-                        v.transcript_created_at IS NOT NULL
-                        OR v.transcript_source IS NOT NULL
-                        OR v.status IN ('transcript_saved', 'claims_extracted')
-                      ) AS has_transcript,
-                      COALESCE(cc.claim_count, 0) AS claim_count
-                    FROM videos v
-                    LEFT JOIN claim_counts cc ON cc.video_id = v.id
-                    ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
-                    """
-                ).fetchall()
-                return self.send_json({"videos": [row_to_video_summary(row) for row in rows]})
+                limit = query_int(query, "limit", DEFAULT_VIDEO_LIMIT, minimum=1, maximum=MAX_PAGE_LIMIT)
+                offset = query_int(query, "offset", 0, minimum=0)
+                return self.send_json(fetch_video_page(conn, query=query, limit=limit, offset=offset))
+
+            if path == "/api/progress-summary":
+                return self.send_json({"counts": fetch_progress_summary(conn)})
+
+            if path == "/api/progress-videos":
+                limit = query_int(query, "limit", DEFAULT_VIDEO_LIMIT, minimum=1, maximum=MAX_PAGE_LIMIT)
+                offset = query_int(query, "offset", 0, minimum=0)
+                return self.send_json(fetch_progress_video_page(conn, query=query, limit=limit, offset=offset))
 
             if path.startswith("/api/videos/"):
                 video_id = path.split("/")[3]
-                row = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+                row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
                 if not row:
                     return self.send_error_json(404, "video not found")
-                claims = conn.execute("SELECT * FROM claims WHERE video_id = %s ORDER BY created_at", (video_id,)).fetchall()
+                claims = conn.execute("SELECT * FROM claims WHERE video_id = %s AND deleted_at IS NULL ORDER BY created_at", (video_id,)).fetchall()
                 response = {
                     "video": row_to_video(row),
                     "claims": [row_to_claim(item) for item in claims],
@@ -1989,12 +3002,18 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.send_json(response)
 
             if path == "/api/knowledge":
-                clauses = []
+                clauses = ["deleted_at IS NULL"]
                 params = []
                 stage = (query.get("stage") or [""])[0]
+                stages = [item.strip() for item in (query.get("stages") or [""])[0].split(",") if item.strip()]
                 tag = (query.get("tag") or [""])[0]
                 q = (query.get("q") or [""])[0]
-                if stage:
+                limit = query_int(query, "limit", DEFAULT_KNOWLEDGE_LIMIT, minimum=1, maximum=MAX_PAGE_LIMIT)
+                offset = query_int(query, "offset", 0, minimum=0)
+                if stages:
+                    clauses.append("process_stage = ANY(%s)")
+                    params.append(stages)
+                elif stage:
                     clauses.append("process_stage = %s")
                     params.append(stage)
                 if tag:
@@ -2002,20 +3021,32 @@ class AppHandler(SimpleHTTPRequestHandler):
                     params.extend([tag, tag, tag])
                 if q:
                     clauses.append(
-                        "(object_name LIKE %s OR original_conclusion LIKE %s OR original_reasons LIKE %s OR conditions LIKE %s)"
+                        "(COALESCE(object_name, '') || ' ' || COALESCE(original_conclusion, '') || ' ' || COALESCE(conditions, '') || ' ' || COALESCE(original_reasons::text, '') ILIKE %s)"
                     )
-                    params.extend([f"%{q}%"] * 4)
+                    params.append(f"%{q}%")
                 where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-                rows = conn.execute(f"SELECT * FROM claims {where} ORDER BY created_at DESC", params).fetchall()
-                return self.send_json({"claims": [row_to_claim(row) for row in rows]})
+                total = conn.execute(f"SELECT COUNT(*) AS count FROM claims {where}", params).fetchone()["count"]
+                rows = conn.execute(
+                    f"SELECT * FROM claims {where} ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s",
+                    [*params, limit, offset],
+                ).fetchall()
+                return self.send_json(
+                    {
+                        "claims": [row_to_claim(row) for row in rows],
+                        "total": int(total or 0),
+                        "limit": limit,
+                        "offset": offset,
+                        "has_more": offset + len(rows) < int(total or 0),
+                    }
+                )
 
             if path == "/api/queue/next":
                 transcript_row = conn.execute(
                     """
                     SELECT v.*, COUNT(c.id) AS claim_count
                     FROM videos v
-                    LEFT JOIN claims c ON c.video_id = v.id
-                    WHERE v.status = 'transcript_saved'
+                    LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
+                    WHERE v.status = 'transcript_saved' AND v.deleted_at IS NULL
                     GROUP BY v.id
                     HAVING COUNT(c.id) = 0
                     ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
@@ -2026,8 +3057,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                     """
                     SELECT v.*, COUNT(c.id) AS claim_count
                     FROM videos v
-                    LEFT JOIN claims c ON c.video_id = v.id
-                    WHERE v.status = 'transcript_pending'
+                    LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
+                    WHERE v.status = 'transcript_pending' AND v.deleted_at IS NULL
                     GROUP BY v.id
                     ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
                     LIMIT 1
@@ -2048,6 +3079,36 @@ class AppHandler(SimpleHTTPRequestHandler):
     def handle_post(self, parsed):
         path = parsed.path
         payload = read_json(self)
+        if path == "/api/admin/login":
+            if not ADMIN_PASSWORD:
+                return self.send_error_json(503, "admin password is not configured")
+            password = str(payload.get("password") or "")
+            if not hmac.compare_digest(password, ADMIN_PASSWORD):
+                return self.send_error_json(401, "invalid admin password")
+            session_value = make_admin_session_value()
+            cookie = (
+                f"{ADMIN_SESSION_COOKIE}={session_value}; Max-Age={ADMIN_SESSION_MAX_AGE_SECONDS}; "
+                "Path=/; HttpOnly; SameSite=Lax"
+            )
+            self.send_response(200)
+            self.send_header("Set-Cookie", cookie)
+            body = json_dumps(admin_session_payload(self) | {"authenticated": True}).encode("utf-8")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/admin/logout":
+            self.send_response(200)
+            self.send_header("Set-Cookie", f"{ADMIN_SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
+            body = json_dumps({"authenticated": False, "configured": bool(ADMIN_PASSWORD)}).encode("utf-8")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if path == "/api/douyin/login/start":
             snapshot = douyin_login_snapshot()
             if snapshot.get("running"):
@@ -2099,13 +3160,14 @@ class AppHandler(SimpleHTTPRequestHandler):
                 ts = now()
                 published_at = payload.get("published_at")
                 published_at_ts = parse_published_at(published_at)
+                has_transcript, transcript_length = transcript_meta(payload.get("transcript_text"))
                 conn.execute(
                     """
                     INSERT INTO videos (
                       id, source_id, platform, creator, title, source_url, share_url, share_text, published_at, published_at_ts,
                       transcript_text, transcript_source, transcript_created_at,
-                      status, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                      has_transcript, transcript_length, status, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT(source_url) DO UPDATE SET
                       title=excluded.title,
                       platform=excluded.platform,
@@ -2114,6 +3176,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                       share_text=excluded.share_text,
                       published_at=excluded.published_at,
                       published_at_ts=excluded.published_at_ts,
+                      deleted_at=NULL,
+                      deleted_by=NULL,
+                      delete_reason=NULL,
                       updated_at=excluded.updated_at
                     """,
                     (
@@ -2129,13 +3194,15 @@ class AppHandler(SimpleHTTPRequestHandler):
                         published_at_ts,
                         payload.get("transcript_text"),
                         payload.get("transcript_source"),
-                        ts if payload.get("transcript_text") else None,
-                        "transcript_saved" if payload.get("transcript_text") else "created",
+                        ts if has_transcript else None,
+                        has_transcript,
+                        transcript_length,
+                        "transcript_saved" if has_transcript else "created",
                         ts,
                         ts,
                     ),
                 )
-                row = conn.execute("SELECT * FROM videos WHERE source_url = %s", (payload["source_url"],)).fetchone()
+                row = conn.execute("SELECT * FROM videos WHERE source_url = %s AND deleted_at IS NULL", (payload["source_url"],)).fetchone()
                 return self.send_json({"video": row_to_video(row)}, status=201)
 
             if path == "/api/videos/batch-collect":
@@ -2165,6 +3232,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     except RuntimeError as exc:
                         return self.send_error_json(502, truncate_error(str(exc)))
                 transcript_text = transcript_result["transcript_text"]
+                has_transcript, transcript_length = transcript_meta(transcript_text)
                 ts = now()
                 video_id = payload.get("id") or new_id("vid")
                 existing = conn.execute("SELECT * FROM videos WHERE source_url = %s", (share_url,)).fetchone()
@@ -2178,8 +3246,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                     INSERT INTO videos (
                       id, source_id, platform, creator, title, source_url, share_url, share_text, published_at, published_at_ts,
                       transcript_text, transcript_source, transcript_created_at,
-                      status, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                      has_transcript, transcript_length, status, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT(source_url) DO UPDATE SET
                       title=excluded.title,
                       platform=excluded.platform,
@@ -2191,7 +3259,12 @@ class AppHandler(SimpleHTTPRequestHandler):
                       transcript_text=excluded.transcript_text,
                       transcript_source=excluded.transcript_source,
                       transcript_created_at=excluded.transcript_created_at,
+                      has_transcript=excluded.has_transcript,
+                      transcript_length=excluded.transcript_length,
                       status=excluded.status,
+                      deleted_at=NULL,
+                      deleted_by=NULL,
+                      delete_reason=NULL,
                       updated_at=excluded.updated_at
                     """,
                     (
@@ -2208,12 +3281,14 @@ class AppHandler(SimpleHTTPRequestHandler):
                         transcript_text,
                         transcript_source if fallback_transcript else f"TranscriptGenerate/task:{transcript_result['task_id']}",
                         ts,
+                        has_transcript,
+                        transcript_length,
                         "transcript_saved",
                         ts,
                         ts,
                     ),
                 )
-                row = conn.execute("SELECT * FROM videos WHERE source_url = %s", (share_url,)).fetchone()
+                row = conn.execute("SELECT * FROM videos WHERE source_url = %s AND deleted_at IS NULL", (share_url,)).fetchone()
                 video = row_to_video(row)
                 response = {
                     "video": video,
@@ -2232,13 +3307,14 @@ class AppHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/videos/") and path.endswith("/transcript"):
                 video_id = path.split("/")[3]
                 require_fields(payload, ["transcript_text"])
-                row = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+                row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
                 if not row:
                     return self.send_error_json(404, "video not found")
                 conn.execute(
                     """
                     UPDATE videos
                     SET transcript_text = %s, transcript_source = %s, transcript_created_at = %s,
+                        has_transcript = %s, transcript_length = %s,
                         status = 'transcript_saved', updated_at = %s
                     WHERE id = %s
                     """,
@@ -2246,6 +3322,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                         payload["transcript_text"],
                         payload.get("transcript_source", "manual"),
                         now(),
+                        *transcript_meta(payload["transcript_text"]),
                         now(),
                         video_id,
                     ),
@@ -2253,9 +3330,28 @@ class AppHandler(SimpleHTTPRequestHandler):
                 updated = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
                 return self.send_json({"video": row_to_video(updated)})
 
+            if path.startswith("/api/videos/") and path.endswith("/restore"):
+                if not require_admin(self):
+                    return
+                video_id = path.split("/")[3]
+                row = conn.execute("SELECT id FROM videos WHERE id = %s AND deleted_at IS NOT NULL", (video_id,)).fetchone()
+                if not row:
+                    return self.send_error_json(404, "deleted video not found")
+                conn.execute(
+                    """
+                    UPDATE videos
+                    SET deleted_at = NULL, deleted_by = NULL, delete_reason = NULL, updated_at = %s
+                    WHERE id = %s
+                    """,
+                    (now(), video_id),
+                )
+                restored = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+                invalidate_bootstrap_cache()
+                return self.send_json({"status": "restored", "video": row_to_video(restored)})
+
             if path.startswith("/api/videos/") and path.endswith("/transcript/retry"):
                 video_id = path.split("/")[3]
-                row = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+                row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
                 if not row:
                     return self.send_error_json(404, "video not found")
                 try:
@@ -2275,7 +3371,7 @@ class AppHandler(SimpleHTTPRequestHandler):
 
             if path.startswith("/api/videos/") and path.endswith("/share"):
                 video_id = path.split("/")[3]
-                row = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+                row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
                 if not row:
                     return self.send_error_json(404, "video not found")
                 conn.execute(
@@ -2296,7 +3392,7 @@ class AppHandler(SimpleHTTPRequestHandler):
 
             if path.startswith("/api/videos/") and path.endswith("/extract"):
                 video_id = path.split("/")[3]
-                row = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+                row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
                 if not row:
                     return self.send_error_json(404, "video not found")
                 video = row_to_video(row)
@@ -2306,18 +3402,45 @@ class AppHandler(SimpleHTTPRequestHandler):
                     return self.send_error_json(409, str(exc))
                 return self.send_json(result, status=202 if result["status"] != "completed" else 200)
 
+            if path.startswith("/api/claims/") and path.endswith("/restore"):
+                if not require_admin(self):
+                    return
+                claim_id = path.split("/")[3]
+                row = conn.execute(
+                    """
+                    SELECT c.id, c.video_id
+                    FROM claims c
+                    JOIN videos v ON v.id = c.video_id
+                    WHERE c.id = %s AND c.deleted_at IS NOT NULL AND v.deleted_at IS NULL
+                    """,
+                    (claim_id,),
+                ).fetchone()
+                if not row:
+                    return self.send_error_json(404, "deleted claim not found or video is deleted")
+                conn.execute(
+                    """
+                    UPDATE claims
+                    SET deleted_at = NULL, deleted_by = NULL, delete_reason = NULL
+                    WHERE id = %s
+                    """,
+                    (claim_id,),
+                )
+                conn.execute("UPDATE videos SET updated_at = %s WHERE id = %s", (now(), row["video_id"]))
+                restored = conn.execute("SELECT * FROM claims WHERE id = %s", (claim_id,)).fetchone()
+                invalidate_bootstrap_cache()
+                return self.send_json({"status": "restored", "claim": row_to_claim(restored)})
+
             if path.startswith("/api/videos/") and path.endswith("/retry-full/start"):
                 video_id = path.split("/")[3]
-                row = conn.execute("SELECT id, retry_count FROM videos WHERE id = %s", (video_id,)).fetchone()
+                row = conn.execute("SELECT id, retry_count FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
                 if not row:
                     return self.send_error_json(404, "video not found")
                 if int(row["retry_count"] or 0) >= 3 and not payload.get("force"):
                     return self.send_error_json(409, "retry_confirmation_required")
-                with QUEUE_JOB_LOCK:
-                    queue_running = QUEUE_JOB["running"]
-                if queue_running:
+                job_id = reserve_queue_job()
+                if not job_id:
                     return self.send_json(queue_snapshot(), status=409)
-                thread = threading.Thread(target=run_video_retry_job, args=(video_id,), daemon=True)
+                thread = threading.Thread(target=run_video_retry_job, args=(video_id, job_id), daemon=True)
                 thread.start()
                 time.sleep(0.1)
                 return self.send_json(queue_snapshot(), status=202)
@@ -2327,8 +3450,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                     """
                     SELECT v.*, COUNT(c.id) AS claim_count
                     FROM videos v
-                    LEFT JOIN claims c ON c.video_id = v.id
-                    WHERE v.status = 'transcript_saved'
+                    LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
+                    WHERE v.status = 'transcript_saved' AND v.deleted_at IS NULL
                     GROUP BY v.id
                     HAVING COUNT(c.id) = 0
                     ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
@@ -2339,7 +3462,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     return self.send_json({"status": "empty", "message": "no transcript_saved videos waiting for extraction"})
                 video = row_to_video(row)
                 result = extract_claims_for_video(conn, video)
-                refreshed = conn.execute("SELECT * FROM videos WHERE id = %s", (video["id"],)).fetchone()
+                refreshed = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video["id"],)).fetchone()
                 result["video"] = row_to_video(refreshed)
                 return self.send_json(result, status=202 if result["status"] != "completed" else 200)
 
@@ -2350,16 +3473,19 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.send_json(result)
 
             if path == "/api/queue/start":
-                with QUEUE_JOB_LOCK:
-                    queue_running = QUEUE_JOB["running"]
-                if queue_running:
+                job_id = reserve_queue_job()
+                if not job_id:
                     return self.send_json(queue_snapshot(), status=409)
                 limit = int(payload.get("limit") or AUTO_QUEUE_BATCH_LIMIT)
                 delay_seconds = float(payload.get("delay_seconds", TRANSCRIPT_QUEUE_DELAY_SECONDS))
-                thread = threading.Thread(target=run_queue_job, args=(limit, delay_seconds), daemon=True)
+                thread = threading.Thread(target=run_queue_job, args=(limit, delay_seconds, job_id), daemon=True)
                 thread.start()
                 time.sleep(0.1)
                 return self.send_json(queue_snapshot(), status=202)
+
+            if path == "/api/queue/cancel":
+                requested = request_queue_cancel()
+                return self.send_json(queue_snapshot(), status=202 if requested else 200)
 
             if path.startswith("/api/sources/") and path.endswith("/update"):
                 source_id = path.split("/")[3]
@@ -2403,6 +3529,58 @@ class AppHandler(SimpleHTTPRequestHandler):
                     },
                     status=202,
                 )
+
+        return self.send_error_json(404, "not found")
+
+    def handle_delete(self, parsed):
+        path = parsed.path
+        if not DB_STATUS["available"]:
+            return self.send_error_json(503, f"database unavailable: {truncate_error(DB_STATUS['message'])}")
+        if not require_admin(self):
+            return
+        deleted_at = now()
+        delete_reason = (parse_qs(parsed.query).get("reason") or [""])[0].strip()
+        with connect() as conn:
+            if path.startswith("/api/videos/"):
+                video_id = path.split("/")[3]
+                row = conn.execute("SELECT id FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
+                if not row:
+                    return self.send_error_json(404, "video not found")
+                conn.execute(
+                    """
+                    UPDATE claims
+                    SET deleted_at = %s, deleted_by = %s, delete_reason = %s
+                    WHERE video_id = %s AND deleted_at IS NULL
+                    """,
+                    (deleted_at, "admin", delete_reason, video_id),
+                )
+                conn.execute(
+                    """
+                    UPDATE videos
+                    SET deleted_at = %s, deleted_by = %s, delete_reason = %s, updated_at = %s
+                    WHERE id = %s AND deleted_at IS NULL
+                    """,
+                    (deleted_at, "admin", delete_reason, deleted_at, video_id),
+                )
+                invalidate_bootstrap_cache()
+                return self.send_json({"status": "deleted", "video_id": video_id})
+
+            if path.startswith("/api/claims/"):
+                claim_id = path.split("/")[3]
+                row = conn.execute("SELECT id, video_id FROM claims WHERE id = %s AND deleted_at IS NULL", (claim_id,)).fetchone()
+                if not row:
+                    return self.send_error_json(404, "claim not found")
+                conn.execute(
+                    """
+                    UPDATE claims
+                    SET deleted_at = %s, deleted_by = %s, delete_reason = %s
+                    WHERE id = %s AND deleted_at IS NULL
+                    """,
+                    (deleted_at, "admin", delete_reason, claim_id),
+                )
+                conn.execute("UPDATE videos SET updated_at = %s WHERE id = %s", (deleted_at, row["video_id"]))
+                invalidate_bootstrap_cache()
+                return self.send_json({"status": "deleted", "claim_id": claim_id, "video_id": row["video_id"]})
 
         return self.send_error_json(404, "not found")
 
