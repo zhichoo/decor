@@ -1,0 +1,21 @@
+name: decor
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: decor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: decor
+      POSTGRES_USER: decor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./dev.sh first to create local configuration}
+    ports:
+      - "127.0.0.1:${DECOR_DB_PORT:-15439}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decor -d decor"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+volumes:
+  postgres-data:

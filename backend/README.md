@@ -1,24 +1,7 @@
-# 装修知识库 Backend
+# 后端
 
-只提供 API、采集队列、文案提取和数据库访问。
+本目录属于 [decor 合并项目](../README.md)。Python API、抖音浏览器采集、第三方转写和 AI 观点提取代码位于此处。
 
-## 启动
+在仓库根目录运行 `./dev.sh` 即可同时启动后端与前端，本地数据使用持久化 PostgreSQL 18。配置存放于本目录的 `config.local.json`，该文件不提交。
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp config.example.json config.local.json
-.venv/bin/python server.py 4189
-```
-
-默认只开放 API：`http://127.0.0.1:4189/api/...`。
-
-如需临时托管 Web 静态页面：
-
-```bash
-STATIC_ROOT=../web .venv/bin/python server.py 4189
-```
-
-## 配置
-
-真实密钥写入 `config.local.json`，该文件不会提交。
+需要单独启动 API 时，先准备已初始化数据库，再设置 `DATABASE_URL`，运行 `python server.py 4189`。通过 `STATIC_ROOT` 可指定静态页面目录。

@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-import json
-import sqlite3
+"""Optional PostgreSQL demo data. Never initialize or overwrite existing rows."""
+import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
-from server import DEFAULT_DB, init_db, json_dumps
+import psycopg2
+from psycopg2.extras import Json
 
-
-DB_PATH = DEFAULT_DB
-NOW = int(time.time())
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from init_db import LOCK_ID, SCHEMA_PATH, database_url, validate_schema
 
 SOURCES = [
     {
-        "id": "src_kebadong",
+        "id": "demo_src_kebadong",
         "platform": "douyin",
         "name": "磕巴东",
         "profile_url": "https://www.douyin.com/user/MS4wLjABAAAArlnxpsxwvsIFkIY2L0UqWPMCGmz6rWv0jURSFLDSreA",
@@ -21,7 +22,7 @@ SOURCES = [
         "notes": "用户确认的抖音装修账号，优先测试近一年公开视频。",
     },
     {
-        "id": "src_zhuangxiubang",
+        "id": "demo_src_zhuangxiubang",
         "platform": "douyin,xiaohongshu",
         "name": "装修帮",
         "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAVZlAt7qbW0bL3vKlpRn1t8TdNAySaWtoWpRiMLhlEdT2AO6P6L6LdoWtSR1Ajs6h",
@@ -30,7 +31,7 @@ SOURCES = [
         "notes": "测试来源，后续补充近一年公开视频链接。",
     },
     {
-        "id": "src_ashuang",
+        "id": "demo_src_ashuang",
         "platform": "douyin,xiaohongshu",
         "name": "设计师阿爽",
         "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAAUNPjSuAGItEmEFdrQ7_jyUakTH956APYHzMaZNE9ok",
@@ -39,7 +40,7 @@ SOURCES = [
         "notes": "测试来源，后续补充近一年公开视频链接。",
     },
     {
-        "id": "src_qiushu",
+        "id": "demo_src_qiushu",
         "platform": "xiaohongshu",
         "name": "求叔（装修不求人）",
         "profile_url": "https://toobigdata.com/red/893504339/",
@@ -55,8 +56,8 @@ SHARE_TEXT = """0.23 bnQ:/ C@U.lP :4pm 07/25 入住一年就知道我说的对�
 
 VIDEOS = [
     {
-        "id": "vid_kebadong_001",
-        "source_id": "src_kebadong",
+        "id": "demo_vid_kebadong_001",
+        "source_id": "demo_src_kebadong",
         "platform": "douyin",
         "creator": "磕巴东",
         "title": "入住一年就知道我说的对了",
@@ -66,14 +67,14 @@ VIDEOS = [
         "published_at": "2026",
         "transcript_text": TRANSCRIPT,
         "transcript_source": "TranscriptGenerate/manual",
-        "status": "claims_seeded",
+        "status": "claims_extracted",
     }
 ]
 
 CLAIMS = [
     {
-        "id": "claim_kbd_001",
-        "video_id": "vid_kebadong_001",
+        "id": "demo_claim_kbd_001",
+        "video_id": "demo_vid_kebadong_001",
         "extraction_run_id": None,
         "object_name": "带颜色乳胶漆 / 硅藻泥 / 艺术漆 / 贝壳粉",
         "stance": "明确不推荐",
@@ -88,8 +89,8 @@ CLAIMS = [
         "source_video_url": "https://v.douyin.com/Bf2zXdiISM8/",
     },
     {
-        "id": "claim_kbd_002",
-        "video_id": "vid_kebadong_001",
+        "id": "demo_claim_kbd_002",
+        "video_id": "demo_vid_kebadong_001",
         "extraction_run_id": None,
         "object_name": "本地小工厂全屋定制",
         "stance": "明确不推荐",
@@ -104,8 +105,8 @@ CLAIMS = [
         "source_video_url": "https://v.douyin.com/Bf2zXdiISM8/",
     },
     {
-        "id": "claim_kbd_003",
-        "video_id": "vid_kebadong_001",
+        "id": "demo_claim_kbd_003",
+        "video_id": "demo_vid_kebadong_001",
         "extraction_run_id": None,
         "object_name": "集成灶",
         "stance": "明确不推荐",
@@ -120,8 +121,8 @@ CLAIMS = [
         "source_video_url": "https://v.douyin.com/Bf2zXdiISM8/",
     },
     {
-        "id": "claim_kbd_004",
-        "video_id": "vid_kebadong_001",
+        "id": "demo_claim_kbd_004",
+        "video_id": "demo_vid_kebadong_001",
         "extraction_run_id": None,
         "object_name": "无主灯",
         "stance": "有条件",
@@ -138,111 +139,128 @@ CLAIMS = [
 ]
 
 
+def published_timestamp(value):
+    """Year-only/unknown publication dates stay NULL, as in the backend."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    try:
+        result = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return result if result.tzinfo else result.replace(tzinfo=timezone.utc)
+
+
+def seed_data(dsn=None):
+    now = int(time.time())
+    inserted = {"sources": 0, "videos": 0, "claims": 0}
+    skipped_videos = 0
+    # Guard future edits too: this command may only write its demo namespace.
+    for rows in (SOURCES, VIDEOS, CLAIMS):
+        if any(not row["id"].startswith("demo_") for row in rows):
+            raise RuntimeError("Seed IDs must use the demo_ prefix")
+    if any(not row["source_id"].startswith("demo_") for row in VIDEOS):
+        raise RuntimeError("Seed sources must use the demo_ prefix")
+    if any(not row["video_id"].startswith("demo_") or row["extraction_run_id"] is not None
+           for row in CLAIMS):
+        raise RuntimeError("Seed claims may only reference demo videos, without extraction runs")
+    conn = psycopg2.connect(dsn or database_url())
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL search_path = ''")
+                cur.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_ID,))
+                validate_schema(cur, SCHEMA_PATH.read_text(encoding="utf-8"))
+                for source in SOURCES:
+                    cur.execute(
+                        """
+                        INSERT INTO public.sources
+                          (id, platform, name, profile_url, priority, status, notes, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO NOTHING
+                        """,
+                        (source["id"], source["platform"], source["name"], source["profile_url"],
+                         source["priority"], source["status"], source["notes"], now),
+                    )
+                    inserted["sources"] += cur.rowcount
+                eligible_videos = set()
+                for video in VIDEOS:
+                    transcript = video.get("transcript_text") or ""
+                    transcript_length = len(transcript.strip())
+                    has_transcript = transcript_length > 0
+                    cur.execute(
+                        """
+                        INSERT INTO public.videos (
+                          id, source_id, platform, creator, title, source_url, published_at,
+                          share_url, share_text, transcript_text, transcript_source,
+                          transcript_created_at, has_transcript, transcript_length,
+                          published_at_ts, status, created_at, updated_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                  %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        (video["id"], video["source_id"], video["platform"], video["creator"],
+                         video["title"], video["source_url"], video.get("published_at"),
+                         video.get("share_url"), video.get("share_text"), transcript,
+                         video.get("transcript_source"), now if has_transcript else None,
+                         has_transcript, transcript_length,
+                         published_timestamp(video.get("published_at")), video["status"], now, now),
+                    )
+                    inserted["videos"] += cur.rowcount
+                    # URL conflicts must never attach demo claims to a restored
+                    # video (or to a mismatched demo ID). Lock the eligible row
+                    # against deletion or URL/source edits for this transaction.
+                    cur.execute(
+                        """SELECT id FROM public.videos
+                           WHERE id = %s AND source_url = %s AND source_id = %s
+                             AND deleted_at IS NULL FOR UPDATE""",
+                        (video["id"], video["source_url"], video["source_id"]),
+                    )
+                    if cur.fetchone():
+                        eligible_videos.add(video["id"])
+                    else:
+                        skipped_videos += 1
+                for claim in CLAIMS:
+                    if claim["video_id"] not in eligible_videos:
+                        continue
+                    cur.execute(
+                        """
+                        INSERT INTO public.claims (
+                          id, video_id, extraction_run_id, object_name, stance, process_stage,
+                          space_tags, topic_tags, original_conclusion, original_reasons,
+                          conditions, alternatives, price_info, source_video_url, created_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO NOTHING
+                        """,
+                        (claim["id"], claim["video_id"], claim["extraction_run_id"],
+                         claim["object_name"], claim["stance"], claim["process_stage"],
+                         Json(claim["space_tags"]), Json(claim["topic_tags"]),
+                         claim["original_conclusion"], Json(claim["original_reasons"]),
+                         claim["conditions"], Json(claim["alternatives"]), claim["price_info"],
+                         claim["source_video_url"], now),
+                    )
+                    inserted["claims"] += cur.rowcount
+        return inserted, skipped_videos
+    finally:
+        conn.close()
+
+
 def main():
-    init_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
-        for source in SOURCES:
-            conn.execute(
-                """
-                INSERT INTO sources (id, platform, name, profile_url, priority, status, notes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                  platform=excluded.platform,
-                  name=excluded.name,
-                  profile_url=excluded.profile_url,
-                  priority=excluded.priority,
-                  status=excluded.status,
-                  notes=excluded.notes
-                """,
-                (
-                    source["id"],
-                    source["platform"],
-                    source["name"],
-                    source["profile_url"],
-                    source["priority"],
-                    source["status"],
-                    source["notes"],
-                    NOW,
-                ),
-            )
-        for video in VIDEOS:
-            conn.execute(
-                """
-                INSERT INTO videos (
-                  id, source_id, platform, creator, title, source_url, published_at,
-                  share_url, share_text,
-                  transcript_text, transcript_source, transcript_created_at,
-                  status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source_url) DO UPDATE SET
-                  share_url=excluded.share_url,
-                  share_text=excluded.share_text,
-                  transcript_text=excluded.transcript_text,
-                  transcript_source=excluded.transcript_source,
-                  transcript_created_at=excluded.transcript_created_at,
-                  status=excluded.status,
-                  updated_at=excluded.updated_at
-                """,
-                (
-                    video["id"],
-                    video["source_id"],
-                    video["platform"],
-                    video["creator"],
-                    video["title"],
-                    video["source_url"],
-                    video["published_at"],
-                    video.get("share_url"),
-                    video.get("share_text"),
-                    video["transcript_text"],
-                    video["transcript_source"],
-                    NOW,
-                    video["status"],
-                    NOW,
-                    NOW,
-                ),
-            )
-        for claim in CLAIMS:
-            conn.execute(
-                """
-                INSERT INTO claims (
-                  id, video_id, extraction_run_id, object_name, stance, process_stage,
-                  space_tags, topic_tags, original_conclusion, original_reasons,
-                  conditions, alternatives, price_info, source_video_url, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                  object_name=excluded.object_name,
-                  stance=excluded.stance,
-                  process_stage=excluded.process_stage,
-                  space_tags=excluded.space_tags,
-                  topic_tags=excluded.topic_tags,
-                  original_conclusion=excluded.original_conclusion,
-                  original_reasons=excluded.original_reasons,
-                  conditions=excluded.conditions,
-                  alternatives=excluded.alternatives,
-                  price_info=excluded.price_info,
-                  source_video_url=excluded.source_video_url
-                """,
-                (
-                    claim["id"],
-                    claim["video_id"],
-                    claim["extraction_run_id"],
-                    claim["object_name"],
-                    claim["stance"],
-                    claim["process_stage"],
-                    json_dumps(claim["space_tags"]),
-                    json_dumps(claim["topic_tags"]),
-                    claim["original_conclusion"],
-                    json_dumps(claim["original_reasons"]),
-                    claim["conditions"],
-                    json_dumps(claim["alternatives"]),
-                    claim["price_info"],
-                    claim["source_video_url"],
-                    NOW,
-                ),
-            )
-    print(f"Seeded {DB_PATH}")
+    try:
+        inserted, skipped = seed_data()
+    except (RuntimeError, ValueError, OSError, psycopg2.Error) as exc:
+        message = str(exc) if not isinstance(exc, psycopg2.Error) else "PostgreSQL seed failed (SQLSTATE: " + (exc.pgcode or "connection error") + ")"
+        print(message, file=sys.stderr)
+        return 1
+    print("Demo rows inserted: " + ", ".join(f"{table}={count}" for table, count in inserted.items())
+          + f"; conflicting/deleted videos skipped={skipped}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
