@@ -1,0 +1,11 @@
+{
+  "DATABASE_URL": "host=127.0.0.1 port=5432 dbname=decor user=decor password=change-me sslmode=disable connect_timeout=5",
+  "DEEPSEEK_API_KEY": "",
+  "DEEPSEEK_BASE_URL": "https://ldapi.xmofficial.top/v1",
+  "DEEPSEEK_MODEL": "deepseek-v4-pro",
+  "TRANSCRIPTGENERATE_TOKEN": "",
+  "TRANSCRIPTGENERATE_EMAIL": "",
+  "TRANSCRIPTGENERATE_PASSWORD": "",
+  "TRANSCRIPT_QUEUE_DELAY_SECONDS": "120",
+  "AUTO_QUEUE_BATCH_LIMIT": "20"
+}
