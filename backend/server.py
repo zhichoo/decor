@@ -26,6 +26,10 @@ from psycopg2.extras import Json, RealDictCursor
 
 
 ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import advertising
+from collector_douyin import is_pinned_video
 STATIC_ROOT = Path(os.environ["STATIC_ROOT"]).resolve() if os.environ.get("STATIC_ROOT") else None
 
 
@@ -41,20 +45,24 @@ def load_local_config():
     for key, value in config.items():
         if value is None:
             continue
-        os.environ.setdefault(str(key), str(value))
+        os.environ.setdefault(str(key), json.dumps(value) if isinstance(value, (dict, list)) else str(value))
 
 
 load_local_config()
 
-PROMPT_VERSION = "extract_claims_v3"
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+PROMPT_VERSION = "extract_claims_v5_grounded_written"
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_GROUP = os.environ.get("DEEPSEEK_GROUP", "").strip()
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
+PUBLIC_READ_ONLY = os.environ.get("PUBLIC_READ_ONLY", "false").strip().lower() in ("1", "true", "yes")
 ADMIN_SESSION_COOKIE = "decor_admin_session"
 ADMIN_SESSION_MAX_AGE_SECONDS = int(os.environ.get("ADMIN_SESSION_MAX_AGE_SECONDS", str(7 * 24 * 60 * 60)))
 MAX_ERROR_MESSAGE_LENGTH = 2000
 MAX_TRANSCRIPT_DEBUG_LENGTH = 1500
+TRANSCRIPT_PROVIDER = os.environ.get("TRANSCRIPT_PROVIDER", "transcriptgenerate").strip()
+TRANSCRIPT_SETTINGS_PATH = Path(os.environ.get("TRANSCRIPT_SETTINGS_PATH", ROOT / "transcription-settings.local.json"))
+TRANSCRIPT_SETTINGS_LOCK = threading.RLock()
 TRANSCRIPT_API_BASE_URL = "https://www.transcriptgenerate.com/prod-api"
 TRANSCRIPTGENERATE_TOKEN = os.environ.get("TRANSCRIPTGENERATE_TOKEN", "").strip()
 TRANSCRIPTGENERATE_EMAIL = os.environ.get("TRANSCRIPTGENERATE_EMAIL", "").strip()
@@ -66,8 +74,8 @@ BOOTSTRAP_CACHE_TTL_SECONDS = float(os.environ.get("BOOTSTRAP_CACHE_TTL_SECONDS"
 MIN_TRANSCRIPT_LENGTH = int(os.environ.get("MIN_TRANSCRIPT_LENGTH", "120"))
 TRANSCRIPT_AES_KEY_HEX = "6161444a4c3264394466684c5a4f307a"
 TRANSCRIPT_AES_IV_HEX = "34313241444453534641333432343432"
-TRANSCRIPT_POLL_INTERVAL_SECONDS = 2
-TRANSCRIPT_MAX_POLLS = 30
+TRANSCRIPT_POLL_INTERVAL_SECONDS = max(1, float(os.environ.get("TRANSCRIPT_POLL_INTERVAL_SECONDS", "4")))
+TRANSCRIPT_MAX_POLLS = max(1, int(os.environ.get("TRANSCRIPT_MAX_POLLS", "150")))
 BOOTSTRAP_CACHE_LOCK = threading.RLock()
 BOOTSTRAP_CACHE = {
     "timestamp": 0,
@@ -306,6 +314,8 @@ def validate_admin_session_value(value):
 
 
 def is_admin_request(handler):
+    if PUBLIC_READ_ONLY:
+        return False
     cookies = parse_cookie_header(handler.headers.get("Cookie", ""))
     return validate_admin_session_value(cookies.get(ADMIN_SESSION_COOKIE))
 
@@ -315,11 +325,15 @@ def admin_session_payload(handler):
     return {
         "authenticated": authenticated,
         "configured": bool(ADMIN_PASSWORD),
+        "read_only": PUBLIC_READ_ONLY,
         "max_age": ADMIN_SESSION_MAX_AGE_SECONDS,
     }
 
 
 def require_admin(handler):
+    if PUBLIC_READ_ONLY:
+        handler.send_error_json(403, "public instance is read-only")
+        return False
     if not ADMIN_PASSWORD:
         handler.send_error_json(503, "admin password is not configured")
         return False
@@ -327,6 +341,14 @@ def require_admin(handler):
         handler.send_error_json(401, "admin login required")
         return False
     return True
+
+
+PUBLIC_POST_PATHS = frozenset({"/api/admin/login", "/api/admin/logout"})
+
+
+def is_admin_operation_path(path):
+    # New write endpoints are private unless explicitly made public.
+    return path.startswith("/api/") and path not in PUBLIC_POST_PATHS
 
 
 def json_loads(value, fallback):
@@ -409,6 +431,20 @@ class PGConnection:
 
     def commit(self):
         self._conn.commit()
+
+    @contextmanager
+    def transaction(self):
+        if not self._conn.autocommit:
+            raise RuntimeError("nested database transaction")
+        self._conn.autocommit = False
+        try:
+            yield
+            self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
+        finally:
+            self._conn.autocommit = True
 
     def close(self):
         _get_pool().putconn(self._conn)
@@ -508,9 +544,12 @@ def row_to_video(row):
         "share_text": row["share_text"],
         "published_at": row["published_at"],
         "transcript_text": row["transcript_text"],
+        "ad_review": advertising.current_review(row),
         "has_transcript": bool(row.get("has_transcript", has_transcript)),
         "transcript_length": int(row.get("transcript_length", transcript_length) or 0),
         "transcript_source": row["transcript_source"],
+        "transcript_job": {key: value for key, value in (row.get("transcript_job") or {}).items()
+                           if key in ("provider", "state", "task_id")},
         "transcript_created_at": row["transcript_created_at"],
         "retry_count": row["retry_count"],
         "last_retry_at": row["last_retry_at"],
@@ -524,6 +563,7 @@ def row_to_video(row):
 def row_to_video_summary(row):
     return {
         "id": row["id"],
+        "ad_review": advertising.current_review(row),
         "source_id": row["source_id"],
         "platform": row["platform"],
         "creator": row["creator"],
@@ -546,10 +586,28 @@ def row_to_video_summary(row):
     }
 
 
-def row_to_claim(row):
+def database_readiness():
+    try:
+        with connect() as conn:
+            ready = conn.execute("""
+                SELECT to_regclass('public.sources') IS NOT NULL
+                   AND to_regclass('public.videos') IS NOT NULL
+                   AND to_regclass('public.claims') IS NOT NULL
+                   AND to_regclass('public.extraction_runs') IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_schema='public' AND table_name='videos'
+                                 AND column_name='transcript_job' AND data_type='jsonb') AS ready
+            """).fetchone()["ready"]
+        return bool(ready), "" if ready else "数据库尚未初始化或文案任务迁移未完成"
+    except Exception:
+        return False, "数据库暂不可用"
+
+
+def row_to_claim(row, source_video=None):
     return {
         "id": row["id"],
         "video_id": row["video_id"],
+        "source_video_is_promotional": bool(source_video and advertising.current_review(source_video).get("decision") == "advertising"),
         "extraction_run_id": row["extraction_run_id"],
         "object_name": row["object_name"],
         "stance": row["stance"],
@@ -564,6 +622,17 @@ def row_to_claim(row):
         "source_video_url": row["source_video_url"],
         "created_at": row["created_at"],
     }
+
+
+def claims_with_source_labels(conn, rows):
+    if not rows:
+        return []
+    sources = conn.execute(
+        "SELECT id, title, transcript_text, ad_review, ad_review_override FROM videos WHERE id = ANY(%s)",
+        (list({row["video_id"] for row in rows}),),
+    ).fetchall()
+    by_id = {row["id"]: row for row in sources}
+    return [row_to_claim(row, source_video=by_id.get(row["video_id"])) for row in rows]
 
 
 def row_to_source(row):
@@ -603,12 +672,13 @@ def build_extract_prompt(video):
                     "process_stage": "one of process_stages",
                     "space_tags": ["one or more from space_tags"],
                     "topic_tags": ["one or more from topic_tags"],
-                    "original_conclusion": "string or 未提及",
+                    "original_conclusion": "non-empty complete written Chinese conclusion supported by transcript",
                     "original_reasons": ["string"],
                     "conditions": "string or 未提及",
                     "alternatives": ["string"],
                     "price_info": "string or 未提及",
                     "source_video_url": "string",
+                    "source_quotes": ["1 to 3 verbatim continuous quotes supporting the conclusion and details"],
                 }
             ],
         },
@@ -633,15 +703,16 @@ def build_extract_prompt(video):
                     "space_tags": ["未提及"],
                     "topic_tags": ["材料"],
                     "original_conclusion": "吸水率高的砖铺前需泡水两小时，否则易空鼓脱落",
-                    "original_reasons": ["砖体吸水率高，不泡水会从水泥中大量吸水导致粘结失效"],
+                    "original_reasons": ["不泡够时间，上墙以后容易空鼓脱落"],
                     "conditions": "适用于吸水率高的瓷砖",
                     "alternatives": [],
                     "price_info": "未提及",
-                    "source_video_url": ""
+                    "source_video_url": "",
+                    "source_quotes": ["吸水率高的砖要泡够两小时，不然上墙以后容易空鼓脱落"],
                 },
                 {
                     "object_name": "瓷砖留缝",
-                    "stance": "价格建议",
+                    "stance": "明确推荐",
                     "process_stage": "瓦工阶段",
                     "space_tags": ["未提及"],
                     "topic_tags": ["材料"],
@@ -650,7 +721,8 @@ def build_extract_prompt(video):
                     "conditions": "未提及",
                     "alternatives": [],
                     "price_info": "未提及",
-                    "source_video_url": ""
+                    "source_video_url": "",
+                    "source_quotes": ["铺完之后留缝不能小于2毫米，用十字卡控制间距"],
                 }
             ]
         }
@@ -686,6 +758,22 @@ def build_extract_prompt(video):
         }
     }
 
+    written_example = {
+        "input": "家人们我跟你说，厨房双层碗篮才不到四百块钱，比做抽屉还便宜呢。分类一目了然，碗筷不用摞在一起，是不是？",
+        "output": {
+            "video_summary": {"title": "示例", "source_url": "", "platform": "", "creator": "", "main_topics": ["厨房收纳"]},
+            "filter_reason": "none", "filter_message": "",
+            "claims": [{
+                "object_name": "厨房双层碗篮", "stance": "价格建议", "process_stage": "待人工分类",
+                "space_tags": ["厨房"], "topic_tags": ["未提及"],
+                "original_conclusion": "双层碗篮可分类收纳碗筷，案例价格低于抽屉做法。",
+                "original_reasons": ["碗筷分类清楚，无需叠放。"], "conditions": "未提及",
+                "alternatives": [], "price_info": "不到四百元", "source_video_url": "",
+                "source_quotes": ["厨房双层碗篮才不到四百块钱，比做抽屉还便宜呢。", "分类一目了然，碗筷不用摞在一起"]
+            }]
+        }
+    }
+
     return f"""你是装修视频文案结构化提取器。
 
 核心规则：
@@ -694,18 +782,31 @@ def build_extract_prompt(video):
 3. 原文有多个装修对象时，拆成多条 claims。
 4. 原文有价格、条件、替代做法时，分别放入对应字段。
 5. process_stage 和 tags 只能从给定分类中选择；如果无法可靠归类，process_stage 填"待人工分类"，标签填"未提及"。
-6. 没有通用装修知识、也没有该类产品通用选购重点时，不生成 claims。
-7. 商业推广中的品牌名、系列名、具体型号不作为观点对象；如果原文讲的是产品，只提炼通用选购重点或关键指标，例如吸力、能耗、噪音、容量、滤芯成本、是否易清洁、是否环保、是否耐用。
-8. 如果一条内容只有品牌/型号宣传，没有通用装修知识或产品选购重点，直接跳过，不生成观点。
+6. 原文有明确对象和可理解的实用观点、选择建议、做法或功能，即使只有一条、没有数字参数，也可提取；仅有“买好的”“真解乏”等空泛评价时不生成卡片。
+7. 产品内容优先提炼选择重点、功能和指标；作者明确推荐某品牌时可保留为该作者的建议，但不得补出品牌优势或改写成普遍保证。
+8. 只有商品名称、型号或价格列表，没有明确建议、用途或功能说明的广告口播，直接跳过。
 9. 不要输出解释，不要输出 Markdown，只输出 JSON 对象。第一个字符必须是 {{，最后一个字符必须是 }}。
 10. 文案来自语音识别，可能存在同音字或谐音错误（例如"空鼓"误识别为"空古"，"腻子"误识别为"泥子"）。请根据上下文语义理解原意进行提取；若某段文字因识别错误导致语义不可判断，对应字段填"未提及"，不生成错误观点。
 11. 先判断文案是否值得提取：如果整体是纯推广、促销、带货、进群、抢购、优惠券、粉丝福利、价格引流、联系方式引流，且没有通用装修知识或产品选购重点，claims 必须为空，filter_reason 填 promotion_only。
 12. 如果文案口语化严重、断句混乱、语音识别错乱、关键对象和结论无法可靠还原，claims 必须为空，filter_reason 填 speech_unclear，不要猜测或补写观点。
-13. 如果语义清楚但只是在展示生活、案例、品牌型号、价格活动，没有通用装修知识或产品选购重点，claims 必须为空，filter_reason 填 no_general_knowledge。
-14. 如果只有品牌、型号、系列、单品名称、价格口播，没有通用参数/指标/做法，claims 必须为空，filter_reason 填 brand_model_only。
+13. 仅有生活感叹、展示、价格活动且没有明确实用观点时，claims 必须为空，filter_reason 填 no_general_knowledge。
+14. 只有品牌、型号、系列、单品名称或价格列表，没有作者明确建议或功能说明时，claims 必须为空，filter_reason 填 brand_model_only。
 15. 如果只是展示装修案例、效果、风格、生活方式，没有明确可复用做法或选购指标，claims 必须为空，filter_reason 填 case_showcase_only。
-16. 如果内容过短、重复、碎片化，无法形成完整对象+结论，claims 必须为空，filter_reason 填 duplicate_or_too_thin。
+16. 对象或结论不完整、无法可靠理解时，claims 必须为空，filter_reason 填 duplicate_or_too_thin；不要仅因普通口语、建议简短或与其他卡部分重复而过滤。
 17. 有可提取观点时，filter_reason 填 none，filter_message 填空字符串；无观点时，claims 必须为空，filter_message 用一句中文说明过滤原因。
+18. 卡片用简洁、完整的书面中文，忠实概括原意，删除我/你/咱们、我跟你说、家人们、对不对、是不是、啊、呀等对话与口头禅，以及点赞关注、情绪化感叹、夸张比喻。不要整段复制口播。只有“买好的”“真舒服”“真解乏”“很实用”“性价比高”，没有具体做法/指标/条件的，舍弃。
+19. 每张卡须有明确对象和完整结论，结论不能是“未提及”。标题/简介/标签只能帮助识别对象，不能代替视频文案作为知识依据。
+20. 每张卡必须提供 source_quotes，包含1至3段从下方文案逐字复制的连续原句，直接支撑结论、原因和条件；引用中不修正错别字、不插入省略号、不自行拼接。没有可靠原句则舍弃。source_quotes保留口语，其他字段写清楚、简洁的书面中文。
+21. 同音字仅在原意明确时理解，不确定的材料/品牌/尺寸/单价直接省略，不能靠常识补全，例如不能把“750x150”猜成“750x1500”。不得补充原文未说的因果机制、品牌、替代品或价格。数字尽量沿用文案表达。
+22. 返回前逐卡核对：推荐方向和适用条件不能反转，原文“不选花纹”不能变成“要有花纹”，建议不能改成必然保证。只保留有依据的知识卡，不为了凑数量生成占位卡。
+23. source_quotes 中保留原文的重复、口头禅和识别错词；可选更短的连续原句，但不得拼接、省略中间文字或润色证据。
+24. source_quotes 之外的所有字段必须使用简洁书面语，尤其 original_reasons，不可复制口播段落。把“真解乏得劲儿”整理为“休息舒适、缓解疲劳”；把“往屁股上崩马桶水”整理为“水花飞溅”；删除“内行人的选择”等身份宣传。只有原文引句 source_quotes 保留口语原貌。
+25. 不得把作者的一次使用体验扩大为普遍禁忌或追加新建议。例如原文只说自家推拉门不常关闭，可记录“不常关闭时利用率低”，不得加“选择更简单方式”；原文只说极简风格显乱，不得编造“适合高度自律的家庭”。conditions 没有明确依据时填“未提及”。
+26. 原文的态度、范围和疑问要保留，缺少原因就 original_reasons=[]，不要替作者解释。输出前逐个检查结论、理由、条件和价格，删除任何没有引句支持的新增信息。
+
+去口头禅示例（保留有依据的具体信息）：
+输入文案：{written_example["input"]}
+期望输出：{json_dumps(written_example["output"])}
 
 系统分类：
 {json_dumps(taxonomy)}
@@ -887,13 +988,13 @@ def claim_is_all_unmentioned(claim):
 
 def claim_has_generic_knowledge(claim):
     fields = [
+        normalize_text_value(claim.get("stance")),
         normalize_text_value(claim.get("object_name")),
         normalize_text_value(claim.get("original_conclusion")),
         normalize_text_value(claim.get("conditions")),
         normalize_text_value(claim.get("price_info")),
         " ".join(normalize_list_value(claim.get("original_reasons"))),
         " ".join(normalize_list_value(claim.get("alternatives"))),
-        " ".join(normalize_list_value(claim.get("topic_tags"))),
     ]
     text = " ".join(part for part in fields if part)
     return any(hint in text for hint in GENERIC_KNOWLEDGE_HINTS)
@@ -947,12 +1048,100 @@ def build_filtered_message(extracted, dropped_claims):
     return FILTER_REASON_MESSAGES.get(reason, FILTER_REASON_MESSAGES["no_general_knowledge"])
 
 
-def sanitize_claims(claims):
+def evidence_text(value):
+    # Ignore punctuation/spacing, but never silently repair words in an evidence quote.
+    return re.sub(r"[\W_]+", "", str(value or ""), flags=re.UNICODE).lower()
+
+
+def numeric_evidence_values(text):
+    from decimal import Decimal
+
+    values = {Decimal(value) for value in re.findall(r"\d+(?:\.\d+)?", str(text or ""))}
+    digits = {char: index for index, char in enumerate("零一二三四五六七八九")}
+    digits.update({"〇": 0, "两": 2})
+    units = {"十": 10, "百": 100, "千": 1000, "万": 10000, "亿": 100000000}
+    measure = r"(?:元|块|钱|毫米|厘米|公分|米|小时|分钟|秒|平|月|年|天|层|个|条|扇|级|瓦|升|成)"
+    pattern = r"[零〇一二两三四五六七八九十百千万亿]+(?:点[零〇一二三四五六七八九]+)?"
+    for match in re.finditer(pattern, str(text or "")):
+        token = match.group()
+        if len(token) == 1 and not re.match(measure, str(text or "")[match.end():]):
+            continue
+        integer, _, fraction = token.partition("点")
+        if len(integer) > 1 and not any(char in units for char in integer) and not fraction:
+            continue
+        if any(integer[index] in digits and integer[index + 1] in digits
+               and integer[index] not in "零〇" for index in range(len(integer) - 1)):
+            continue
+        if len(integer) > 1 and integer[-1] in digits and integer[-2] in "百千万亿":
+            continue
+        total = section = number = 0
+        for char in integer:
+            if char in digits:
+                number = digits[char]
+            else:
+                unit = units[char]
+                if unit < 10000:
+                    section += (number or 1) * unit
+                elif unit == 10000:
+                    total += (section + number) * unit
+                    section = 0
+                else:
+                    total = (total + section + number) * unit
+                    section = 0
+                number = 0
+        value = Decimal(total + section + number)
+        if fraction:
+            value += Decimal('0.' + ''.join(str(digits[char]) for char in fraction))
+        values.add(value)
+    return values
+
+
+def claim_quality_error(claim, transcript_text=None, require_evidence=False):
+    for name in ("object_name", "original_conclusion", "conditions", "price_info"):
+        if name in claim and not isinstance(claim[name], (str, type(None))):
+            return "invalid_claim_field"
+    for name in ("original_reasons", "alternatives", "space_tags", "topic_tags"):
+        if name in claim and (not isinstance(claim[name], list) or any(not isinstance(x, str) for x in claim[name])):
+            return "invalid_claim_field"
+    conclusion = normalize_text_value(claim.get("original_conclusion"))
+    if conclusion in ("", "未提及", "未明确", "无", "不详"):
+        return "empty_conclusion"
+    if not normalize_text_value(claim.get("object_name")) or claim.get("object_name") == "未提及":
+        return "empty_object"
+    body = " ".join([conclusion, *normalize_list_value(claim.get("original_reasons")), normalize_text_value(claim.get("conditions"))])
+    speech_markers = re.findall(r"我跟你说|我告诉你|家人们|兄弟们|老铁们?|是不是啊|对不对啊|听懂了吗|点赞关注|关注我|你懂的|咱们说实话", body)
+    if len(speech_markers) >= 2 or re.search(r"点赞.{0,8}关注|关注.{0,8}点赞|打赏支持", body):
+        return "speech_unclear"
+    if require_evidence and re.search(
+        r"我跟你说|家人们|宝子们|老铁们|懂的都懂|绝绝子|真解乏|得劲儿?|"
+        r"内行人.{0,6}选择|乱七八糟玩意|往屁股上|像[个]?囚笼|成了.{0,4}保姆|媳妇说|咱们",
+        body,
+    ):
+        return "colloquial_card_text"
+    if require_evidence:
+        quotes = claim.get("source_quotes")
+        if not isinstance(quotes, list) or not quotes or len(quotes) > 3 or any(not isinstance(q, str) for q in quotes):
+            return "missing_source_evidence"
+        source = evidence_text(transcript_text)
+        if any(len(evidence_text(q)) < 6 or evidence_text(q) not in source for q in quotes):
+            return "unsupported_source_evidence"
+        detail = " ".join([body, normalize_text_value(claim.get("price_info")), *normalize_list_value(claim.get("alternatives"))])
+        source_numbers = numeric_evidence_values(transcript_text)
+        if not numeric_evidence_values(detail).issubset(source_numbers):
+            return "unsupported_numeric_detail"
+    return None
+
+
+def sanitize_claims(claims, transcript_text=None, require_evidence=False):
     filtered = []
     dropped = []
     for claim in claims or []:
         if not isinstance(claim, dict):
             dropped.append({"reason": "invalid_claim_type"})
+            continue
+        quality_error = claim_quality_error(claim, transcript_text, require_evidence)
+        if quality_error:
+            dropped.append({"reason": quality_error, "object_name": claim.get("object_name")})
             continue
         if claim_is_all_unmentioned(claim):
             dropped.append({"reason": "all_unmentioned", "object_name": claim.get("object_name")})
@@ -1073,6 +1262,33 @@ def parse_deepseek_content(response_body):
         raise ValueError(f"deepseek_content_not_json: 模型没有返回可解析的 JSON，开头内容：{preview}") from exc
 
 
+def deepseek_int_setting(name, default, minimum, maximum):
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def deepseek_timeout_seconds():
+    return deepseek_int_setting("DEEPSEEK_TIMEOUT_SECONDS", 300, 30, 600)
+
+
+def deepseek_transient_error(error):
+    text = (error or "").lower()
+    status = re.search(r"deepseek_http_(\d{3})", text)
+    if status:
+        return int(status.group(1)) == 429 or 500 <= int(status.group(1)) <= 599
+    # A timeout or a broken response can occur after the provider accepted and
+    # billed the request. Leave those retries to the user; automatically retry
+    # only explicit temporary HTTP failures or failures before connecting.
+    return any(marker in text for marker in (
+        "curl_exit_5:", "curl_exit_6:", "curl_exit_7:",
+        "connection refused", "name resolution", "name or service not known",
+        "nodename nor servname", "no route to host",
+    ))
+
+
 def call_deepseek(prompt):
     api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
@@ -1088,100 +1304,105 @@ def call_deepseek(prompt):
         "response_format": {"type": "json_object"},
         "stream": False,
     }
-    if DEEPSEEK_GROUP:
+    if DEEPSEEK_MODEL.lower() == "deepseek-flash" or DEEPSEEK_MODEL.lower().startswith("deepseek-v4"):
+        thinking = os.environ.get("DEEPSEEK_THINKING", "disabled").strip().lower()
+        payload["thinking"] = {"type": "enabled" if thinking == "enabled" else "disabled"}
+        if thinking == "enabled":
+            effort = os.environ.get("DEEPSEEK_REASONING_EFFORT", "low").strip().lower()
+            payload["reasoning_effort"] = effort if effort in ("low", "high", "max") else "low"
+        token_limit = os.environ.get("DEEPSEEK_MAX_OUTPUT_TOKENS", "8192").strip()
+        payload["max_tokens"] = max(1024, min(32768, int(token_limit))) if token_limit.isdigit() else 8192
+    if DEEPSEEK_GROUP and urlparse(DEEPSEEK_BASE_URL).hostname != "api.deepseek.com":
         payload["group"] = DEEPSEEK_GROUP
     base_url = DEEPSEEK_BASE_URL.rstrip("/")
     url = f"{base_url}/chat/completions"
+    retries = deepseek_int_setting("DEEPSEEK_MAX_RETRIES", 1, 0, 2)
+    error = None
+    for attempt in range(retries + 1):
+        response, error = deepseek_request_once(url, payload, api_key)
+        if "deepseek_http_404" in (error or "") and url == f"{base_url}/chat/completions" and not base_url.endswith("/v1"):
+            url = f"{base_url}/v1/chat/completions"
+            response, error = deepseek_request_once(url, payload, api_key)
+        if response is not None and response.strip():
+            return normalize_deepseek_response(response), None
+        error = error or "deepseek_empty_response"
+        if attempt == retries or not deepseek_transient_error(error):
+            break
+        time.sleep(2 * (attempt + 1))
+    safe_error = str(error).replace(api_key, "[redacted]")
+    if "timeout" in safe_error.lower() or "timed out" in safe_error.lower() or "curl_exit_28" in safe_error:
+        safe_error = (
+            f"deepseek_timeout: 模型在 {deepseek_timeout_seconds()} 秒内未完成响应"
+            f"（共尝试 {attempt + 1} 次）；文案和已有知识卡已保留。{safe_error}"
+        )
+    return None, truncate_error(safe_error)
 
-    curl_body, curl_error = call_deepseek_with_curl(url, payload, api_key)
-    if curl_body:
-        return normalize_deepseek_response(curl_body), None
-    if "deepseek_http_404" in (curl_error or "") and not base_url.endswith("/v1"):
-        retry_body, retry_error = call_deepseek_with_curl(f"{base_url}/v1/chat/completions", payload, api_key)
-        if retry_body:
-            return normalize_deepseek_response(retry_body), None
-        curl_error = f"{curl_error}; curl_retry: {retry_error}"
 
-    body = json_dumps(payload).encode("utf-8")
+def deepseek_request_once(url, payload, api_key):
+    response, error = call_deepseek_with_curl(url, payload, api_key)
+    # Fall back only when curl cannot run. A submitted request that timed out
+    # must not be silently repeated through a different HTTP client.
+    if not (error or "").startswith("curl_unavailable:"):
+        return response, error
+    return call_deepseek_with_urllib(url, payload, api_key)
+
+
+def call_deepseek_with_urllib(url, payload, api_key):
     request = urllib.request.Request(
         url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        data=json_dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            return normalize_deepseek_response(response.read().decode("utf-8")), None
+        with urllib.request.urlopen(request, timeout=deepseek_timeout_seconds()) as response:
+            return response.read().decode("utf-8"), None
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        if exc.code == 404 and not base_url.endswith("/v1"):
-            retry_url = f"{base_url}/v1/chat/completions"
-            retry_request = urllib.request.Request(
-                retry_url,
-                data=body,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(retry_request, timeout=120) as retry_response:
-                    return normalize_deepseek_response(retry_response.read().decode("utf-8")), None
-            except Exception as retry_exc:
-                python_error = f"deepseek_http_404_retry_failed: {retry_exc}"
-                return None, truncate_error(f"{python_error}; curl_fallback: {curl_error}")
-        python_error = f"deepseek_http_{exc.code}: {detail}"
+        detail = exc.read().decode("utf-8", errors="replace").replace(api_key, "[redacted]")
+        return None, truncate_error(f"deepseek_http_{exc.code}: {detail}")
+    except (TimeoutError, urllib.error.URLError) as exc:
+        message = str(exc).replace(api_key, "[redacted]")
+        category = "deepseek_timeout" if isinstance(exc, TimeoutError) or "timed out" in message.lower() else "deepseek_network_error"
+        return None, truncate_error(f"{category}: {message}")
     except Exception as exc:
-        python_error = f"deepseek_error: {exc}"
-
-    return None, truncate_error(f"{python_error}; curl_fallback: {curl_error}")
+        return None, f"deepseek_transport_error: {type(exc).__name__}"
 
 
 def call_deepseek_with_curl(url, payload, api_key):
-    payload_file = None
+    request_timeout = deepseek_timeout_seconds()
+    connect_timeout = min(request_timeout, deepseek_int_setting("DEEPSEEK_CONNECT_TIMEOUT_SECONDS", 15, 3, 60))
     try:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as file:
-            payload_file = file.name
-            file.write(json_dumps(payload))
-        command = [
-            "curl",
-            "-sS",
-            "-m",
-            "120",
-            "-w",
-            "\n%{http_code}",
-            url,
-            "-H",
-            f"Authorization: Bearer {api_key}",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            f"@{payload_file}",
-        ]
-        result = subprocess.run(command, capture_output=True, text=True, timeout=130, check=False)
+        with tempfile.TemporaryDirectory(prefix="decor-deepseek-") as directory:
+            payload_file = Path(directory) / "payload.json"
+            payload_file.write_text(json_dumps(payload), encoding="utf-8")
+            payload_file.chmod(0o600)
+            header_file = Path(directory) / "headers.conf"
+            header_file.write_text("header = " + json.dumps(f"Authorization: Bearer {api_key}") + "\n", encoding="utf-8")
+            header_file.chmod(0o600)
+            command = [
+                "curl", "--config", str(header_file), "-sS",
+                "--connect-timeout", str(connect_timeout), "--max-time", str(request_timeout),
+                "-w", "\n%{http_code}", url,
+                "-H", "Content-Type: application/json", "--data-binary", f"@{payload_file}",
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=request_timeout + 10, check=False)
+    except subprocess.TimeoutExpired:
+        return None, f"deepseek_timeout: curl_process_timeout after {request_timeout + 10}s"
+    except (FileNotFoundError, PermissionError):
+        return None, "curl_unavailable: cannot execute curl"
     except Exception as exc:
-        return None, str(exc)
-    finally:
-        if payload_file:
-            try:
-                Path(payload_file).unlink(missing_ok=True)
-            except Exception:
-                pass
+        return None, f"curl_execution_error: {type(exc).__name__}"
     if result.returncode != 0:
-        return None, result.stderr.strip() or f"curl_exit_{result.returncode}"
-
+        detail = result.stderr.strip().replace(api_key, "[redacted]")
+        return None, truncate_error(f"curl_exit_{result.returncode}: {detail}")
     text, _, status_text = result.stdout.rpartition("\n")
     try:
         status_code = int(status_text)
     except ValueError:
-        return None, f"invalid_curl_status: {result.stdout[:200]}"
+        return None, "invalid_curl_status"
     if 200 <= status_code < 300:
         return text, None
-    return None, f"deepseek_http_{status_code}: {text}"
+    return None, truncate_error(f"deepseek_http_{status_code}: {text.replace(api_key, '[redacted]')}")
 
 
 def truncate_error(message, limit=MAX_ERROR_MESSAGE_LENGTH):
@@ -1270,14 +1491,21 @@ def save_collected_videos(conn, payload, items):
     )
 
     limit = int(payload.get("limit") or len(items))
+    include_pinned = payload.get("include_pinned") is True
+    pinned_urls = {
+        canonical_video_url(item.get("source_url") or item.get("url") or "")
+        for item in items if is_pinned_video(item)
+    } if not include_pinned else set()
     candidates = []
-    for index, item in enumerate(items[:limit]):
-        if not isinstance(item, dict):
+    for index, item in enumerate(items):
+        if not isinstance(item, dict) or (is_pinned_video(item) and not include_pinned):
             continue
         source_url = canonical_video_url(item.get("source_url") or item.get("url") or "")
-        if not source_url:
+        if not source_url or source_url in pinned_urls:
             continue
         candidates.append((index, item, source_url))
+        if len(candidates) >= limit:
+            break
     existing_urls = set()
     if candidates:
         existing_rows = conn.execute(
@@ -1289,6 +1517,7 @@ def save_collected_videos(conn, payload, items):
     saved = []
     created_count = 0
     duplicate_count = 0
+    skipped_videos = []
     for index, item, source_url in candidates:
         title = (item.get("title") or "").strip() or f"{creator} 作品 {index + 1}"
         video_id = item.get("id") or new_id("vid")
@@ -1304,6 +1533,7 @@ def save_collected_videos(conn, payload, items):
             ON CONFLICT(source_url) DO UPDATE SET
               source_id=excluded.source_id,
               title=excluded.title,
+              ad_review=CASE WHEN videos.title IS DISTINCT FROM excluded.title THEN NULL ELSE videos.ad_review END,
               platform=excluded.platform,
               creator=excluded.creator,
               published_at=COALESCE(excluded.published_at, videos.published_at),
@@ -1312,10 +1542,8 @@ def save_collected_videos(conn, payload, items):
                 WHEN COALESCE(videos.has_transcript, false) THEN videos.status
                 ELSE videos.status
               END,
-              deleted_at=NULL,
-              deleted_by=NULL,
-              delete_reason=NULL,
               updated_at=excluded.updated_at
+            WHERE videos.deleted_at IS NULL
             """,
             (
                 video_id,
@@ -1338,7 +1566,19 @@ def save_collected_videos(conn, payload, items):
                 ts,
             ),
         )
-        row = conn.execute("SELECT * FROM videos WHERE source_url = %s AND deleted_at IS NULL", (source_url,)).fetchone()
+        row = conn.execute("SELECT * FROM videos WHERE source_url = %s", (source_url,)).fetchone()
+        if row is None:
+            raise RuntimeError("collected_video_not_found")
+        if row["deleted_at"] is not None:
+            skipped_videos.append({
+                "id": row["id"],
+                "title": row["title"],
+                "source_url": source_url,
+                "reason_code": "previously_deleted",
+                "reason": "此前已删除，本次更新跳过，不自动恢复",
+                "delete_reason": row["delete_reason"] or "",
+            })
+            continue
         video = row_to_video(row)
         is_duplicate = source_url in existing_urls
         video["dedupe_status"] = "duplicate" if is_duplicate else "created"
@@ -1347,17 +1587,39 @@ def save_collected_videos(conn, payload, items):
             duplicate_count += 1
         else:
             created_count += 1
+        existing_urls.add(source_url)
 
+    invalidate_bootstrap_cache()
     return {
         "source_id": source_id,
         "videos": saved,
+        "skipped_videos": skipped_videos,
         "stats": {
             "received": len(items[:limit]),
             "saved": len(saved),
             "created": created_count,
             "duplicate": duplicate_count,
+            "skipped_deleted": len(skipped_videos),
         },
     }
+
+
+def collection_skip_messages(result):
+    messages = []
+    for video in result.get("skipped_videos", []):
+        message = f"《{video['title']}》：{video['reason']}。"
+        if video.get("delete_reason"):
+            message += f"原删除原因：{video['delete_reason']}"
+        messages.append(message)
+    return messages
+
+
+def collection_update_message(result):
+    stats = result["stats"]
+    message = f"采集完成：新增 {stats['created']} 条，重复 {stats['duplicate']} 条。"
+    if stats.get("skipped_deleted"):
+        message += f"跳过已删除视频 {stats['skipped_deleted']} 条（此前已删除，不自动恢复）。"
+    return "\n".join([message, *collection_skip_messages(result)])
 
 
 def run_douyin_collector(args, timeout=90):
@@ -1512,7 +1774,7 @@ def normalize_transcript_account(account, index):
     if not token and (not email or not password):
         return None
     return {
-        "id": account.get("id") or f"account_{index}",
+        "id": account.get("id") or "tg_" + hashlib.sha256((email.lower() or token).encode()).hexdigest()[:16],
         "label": account.get("label") or email or f"账号 {index}",
         "email": email,
         "password": password,
@@ -1527,33 +1789,30 @@ def normalize_transcript_account(account, index):
 
 
 def load_transcript_accounts():
-    accounts = []
-    if TRANSCRIPT_ACCOUNTS_PATH.exists():
-        try:
-            payload = json.loads(TRANSCRIPT_ACCOUNTS_PATH.read_text(encoding="utf-8"))
-            for index, account in enumerate(payload.get("accounts") or [], start=1):
-                normalized = normalize_transcript_account(account, index)
-                if normalized:
-                    accounts.append(normalized)
-        except Exception as exc:
-            print(f"Failed to load {TRANSCRIPT_ACCOUNTS_PATH}: {exc}", file=sys.stderr)
-    if TRANSCRIPTGENERATE_TOKEN or (TRANSCRIPTGENERATE_EMAIL and TRANSCRIPTGENERATE_PASSWORD):
-        accounts.insert(
-            0,
-            {
-                "id": "config_default",
-                "label": TRANSCRIPTGENERATE_EMAIL or "config_default",
-                "email": TRANSCRIPTGENERATE_EMAIL,
-                "password": TRANSCRIPTGENERATE_PASSWORD,
-                "token": TRANSCRIPTGENERATE_TOKEN,
-                "runtime_token": TRANSCRIPTGENERATE_TOKEN,
-                "cooldown_minutes": 10,
-                "enabled": True,
-                "status": "available",
-                "cooldown_until": 0,
-                "last_error": "",
-            },
-        )
+    # Explicit pool replaces the legacy default, so a stale default token cannot
+    # register the same account twice. Credentials never enter task records.
+    configured = os.environ.get("TRANSCRIPTGENERATE_ACCOUNTS", "").strip()
+    payload = json.loads(configured) if configured else []
+    if not isinstance(payload, list):
+        raise RuntimeError("TRANSCRIPTGENERATE_ACCOUNTS must be a JSON array")
+    if not payload and TRANSCRIPT_ACCOUNTS_PATH.exists():
+        payload = json.loads(TRANSCRIPT_ACCOUNTS_PATH.read_text(encoding="utf-8")).get("accounts", [])
+    if not payload:
+        payload = [{"id": "config_default", "email": TRANSCRIPTGENERATE_EMAIL,
+                    "password": TRANSCRIPTGENERATE_PASSWORD, "token": TRANSCRIPTGENERATE_TOKEN}]
+    accounts, identities, ids = [], set(), set()
+    for index, item in enumerate(payload, 1):
+        account = normalize_transcript_account(item, index)
+        if not account:
+            continue
+        identity = account["email"].lower() or account["token"]
+        if identity in identities:
+            continue
+        if account["id"] in ids:
+            raise RuntimeError("Duplicate transcript account id")
+        accounts.append(account)
+        identities.add(identity)
+        ids.add(account["id"])
     return accounts
 
 
@@ -1684,79 +1943,67 @@ def transcript_auth_expired(response):
     return code in (401, 403) or "token" in message or "登录" in message or "unauthorized" in message
 
 
-def transcript_request(path, method="GET", payload=None, params=None):
-    accounts = [account for account in get_transcript_accounts() if account.get("enabled", True)]
-    if not accounts:
-        return transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=True)
+class TranscriptQuotaError(RuntimeError):
+    pass
 
-    now_ts = time.time()
-    errors = []
-    with TRANSCRIPT_ACCOUNT_LOCK:
-        start_index = TRANSCRIPT_ACCOUNT_INDEX % len(accounts)
-    ordered_accounts = accounts[start_index:] + accounts[:start_index]
-    for account in ordered_accounts:
-        label = transcript_account_label(account)
-        if account.get("cooldown_until", 0) > now_ts:
-            errors.append(f"{label}: 冷却中")
-            continue
-        try:
-            return transcript_request_with_account(account, path, method=method, payload=payload, params=params)
-        except RuntimeError as exc:
-            errors.append(f"{label}: {truncate_error(str(exc), 220)}")
-            continue
-    raise RuntimeError("所有文案账号不可用：" + "；".join(errors))
+
+def transcript_safe_error(error, account):
+    text = str(error)
+    for key in ("password", "token", "runtime_token"):
+        if account.get(key):
+            text = text.replace(account[key], "[redacted]")
+    return truncate_error(text)
+
+
+def transcript_request(path, method="GET", payload=None, params=None, account=None):
+    # Never choose/fail over accounts per HTTP request: task ownership is fixed.
+    if account is None:
+        raise RuntimeError("transcript_account_required")
+    return transcript_request_with_account(account, path, method=method, payload=payload, params=params)
 
 
 def transcript_request_with_account(account, path, method="GET", payload=None, params=None):
-    label = transcript_account_label(account)
-    if not account.get("runtime_token") and account.get("email") and account.get("password"):
+    if not account.get("runtime_token"):
         transcript_login_account(account)
-    try:
-        response = transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=False, account=account)
-    except RuntimeError as exc:
-        detail = str(exc)
-        if "transcriptgenerate_http_401" in detail or "transcriptgenerate_http_403" in detail:
-            if account.get("email") and account.get("password"):
-                try:
-                    transcript_login_account(account)
-                    response = transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=False, account=account)
-                except Exception as login_exc:
-                    account["status"] = "auth_failed"
-                    account["last_error"] = truncate_error(str(login_exc))
-                    raise RuntimeError(f"{label} 登录失效且重登失败：{truncate_error(str(login_exc), 500)}") from login_exc
-            else:
-                account["status"] = "auth_failed"
-                account["last_error"] = truncate_error(detail)
-                raise RuntimeError(f"{label} token 失效且未配置密码") from exc
-        else:
-            account["status"] = "failed"
-            account["last_error"] = truncate_error(detail)
-            raise
-    if transcript_auth_expired(response):
-        if account.get("email") and account.get("password"):
-            try:
-                transcript_login_account(account)
-                response = transcript_request_once(path, method=method, payload=payload, params=params, auth=True, retry_auth=False, account=account)
-            except Exception as login_exc:
-                account["status"] = "auth_failed"
-                account["last_error"] = truncate_error(str(login_exc))
-                raise RuntimeError(f"{label} token 失效且重登失败：{truncate_error(str(login_exc), 500)}") from login_exc
-        else:
-            account["status"] = "auth_failed"
-            account["last_error"] = truncate_error(transcript_response_text(response))
-            raise RuntimeError(f"{label} token 失效且未配置密码")
-    if transcript_is_limit_response(response):
+    for attempt in range(2):
+        try:
+            response = transcript_request_once(path, method=method, payload=payload, params=params,
+                                               auth=True, retry_auth=False, account=account)
+        except RuntimeError as exc:
+            # A create exception, even HTTP 5xx, is ambiguous. Never resend it.
+            if method != "GET" or attempt or not any(
+                marker in str(exc) for marker in ("transcriptgenerate_http_401", "transcriptgenerate_http_403")
+            ):
+                raise RuntimeError(transcript_safe_error(exc, account)) from None
+            response = {"code": 401}
+        if transcript_auth_expired(response):
+            if attempt or not account.get("password"):
+                raise RuntimeError("transcript_account_auth_failed")
+            transcript_login_account(account)
+            # Only an explicit authentication rejection can safely be retried.
+            continue
+        return response
+    raise RuntimeError("transcript_account_auth_failed")
+
+
+def transcript_check_quota(account):
+    response = transcript_request_with_account(account, "/ai-face/userBenefitsAndUsage")
+    if not isinstance(response, dict) or response.get("code") not in (200, "200"):
+        raise RuntimeError("transcript_quota_check_failed")
+    data = response.get("data") or {}
+    benefit = next((item for item in data.get("benefits", [])
+                    if item.get("functionKey") == "VIDEO_TO_TEXT"), None)
+    if benefit is None:
+        raise RuntimeError("transcript_quota_missing")
+    remaining = benefit.get("remainingAmount")
+    unlimited = float(benefit.get("totalQuota") or 0) == -1
+    if not unlimited and remaining is None:
+        raise RuntimeError("transcript_quota_unknown")
+    if benefit.get("status") is False or benefit.get("isLimitReached") or (not unlimited and float(remaining) <= 0):
         account["status"] = "limited"
-        account["cooldown_until"] = time.time() + int(account.get("cooldown_minutes") or 10) * 60
-        account["last_error"] = truncate_error(transcript_response_text(response))
-        raise RuntimeError(f"{label} 额度或账号上限：{truncate_error(transcript_response_text(response), 500)}")
+        raise TranscriptQuotaError("transcript_quota_exhausted")
     account["status"] = "available"
-    account["last_error"] = ""
-    with TRANSCRIPT_ACCOUNT_LOCK:
-        global TRANSCRIPT_ACCOUNT_INDEX
-        if account in TRANSCRIPT_ACCOUNTS:
-            TRANSCRIPT_ACCOUNT_INDEX = TRANSCRIPT_ACCOUNTS.index(account)
-    return response
+    return benefit
 
 
 def transcript_request_once(path, method="GET", payload=None, params=None, auth=True, retry_auth=True, account=None):
@@ -1952,103 +2199,318 @@ def extract_transcript_text(value):
     return selected["text"] if selected else ""
 
 
-def fetch_transcript_from_transcriptgenerate(video_url, log=None):
-    create_response = transcript_request(
-        "/transcript/createTask",
-        method="POST",
-        payload={
-            "appType": "transcript",
-            "workUrl": video_url,
-            "type": "text",
-            "targetLanguage": "auto",
-        },
-    )
-    task_id = extract_task_id(create_response)
-    if not task_id:
-        if transcript_is_limit_response(create_response):
-            raise RuntimeError(f"transcriptgenerate_limit: {transcript_response_text(create_response)}")
-        raise RuntimeError(f"transcript_task_id_missing: {create_response}")
-    if log:
-        log(f"文案服务已接收任务，任务号 {task_id}")
+TRANSCRIPT_ASSIGN_LOCK_ID = 0x5447524F5441
 
-    last_response = None
-    debug = {
-        "task_id": task_id,
-        "create_response": create_response,
-        "polls": [],
-        "candidate_summary": "",
-        "selected_path": "",
-        "selected_length": 0,
-        "raw_excerpt": "",
-    }
-    for poll_index in range(TRANSCRIPT_MAX_POLLS):
-        time.sleep(TRANSCRIPT_POLL_INTERVAL_SECONDS)
-        last_response = transcript_request("/transcript/queryTask", method="GET", params={"taskId": task_id})
-        candidates = collect_transcript_candidates(last_response)
-        selected = select_transcript_candidate(candidates, allow_weak=False)
-        poll_summary = {
-            "index": poll_index + 1,
-            "code": last_response.get("code") if isinstance(last_response, dict) else None,
-            "msg": last_response.get("msg") if isinstance(last_response, dict) else "",
-            "status": last_response.get("status") if isinstance(last_response, dict) else "",
-            "candidate_summary": summarize_transcript_candidates(candidates),
-            "selected_path": selected["path"] if selected else "",
-            "selected_length": selected["length"] if selected else 0,
-        }
-        debug["polls"].append(poll_summary)
-        debug["candidate_summary"] = poll_summary["candidate_summary"]
-        debug["selected_path"] = poll_summary["selected_path"]
-        debug["selected_length"] = poll_summary["selected_length"]
-        debug["raw_excerpt"] = truncate_text(json_dumps(last_response), MAX_TRANSCRIPT_DEBUG_LENGTH)
+
+def write_transcript_job(conn, video_id, job):
+    conn.execute("UPDATE videos SET transcript_job = %s WHERE id = %s",
+                 (Json(job), video_id))
+
+
+def transcript_saved_result(row):
+    task_id = (row.get("transcript_job") or {}).get("task_id") or "saved_transcript"
+    return {"task_id": task_id, "transcript_text": row["transcript_text"],
+            "raw_result": {"preserved_existing": True}}
+
+
+def fetch_transcript_from_transcriptgenerate(video_url, log=None, conn=None, video_id=None):
+    if conn is None or not video_id:
+        raise RuntimeError("transcript_persistent_video_required")
+    accounts = get_transcript_accounts()
+    row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
+    if not row:
+        raise RuntimeError("video not found")
+    job = dict(row.get("transcript_job") or {})
+    if job and job.get("provider") != "transcriptgenerate":
+        if job.get("provider") == "local_asr" and job.get("state") in ("failed", "succeeded"):
+            job = {}  # A terminal local attempt cannot hide an outstanding paid API task.
+        else:
+            raise RuntimeError("unsupported_transcript_provider")
+    if job.get("state") in ("creating", "creation_uncertain") and not job.get("task_id"):
+        raise RuntimeError("文案任务创建结果不明，已阻止重复提交；请先在原账号核对任务")
+    if not job.get("task_id"):
+        # Serializes account allocation across threads/processes, and commits the
+        # intent BEFORE the only create call. The cursor survives app restarts.
+        with conn.transaction():
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (TRANSCRIPT_ASSIGN_LOCK_ID,))
+            last = conn.execute("""SELECT transcript_job->>'account_id' AS account_id
+                FROM videos WHERE transcript_job->>'assigned_at' IS NOT NULL
+                ORDER BY (transcript_job->>'assigned_at')::bigint DESC LIMIT 1""").fetchone()
+            enabled = [a for a in accounts if a.get("enabled", True)]
+            ids = [a["id"] for a in enabled]
+            start = (ids.index(last["account_id"]) + 1) % len(ids) if last and last["account_id"] in ids else 0
+            ordered = enabled[start:] + enabled[:start]
+            errors = []
+            for account in ordered:
+                try:
+                    transcript_check_quota(account)
+                except Exception as exc:
+                    errors.append(account["id"] + ": " + transcript_safe_error(exc, account))
+                    continue  # No create has happened: safe to try next account.
+                job = {"provider": "transcriptgenerate", "account_id": account["id"],
+                       "state": "creating", "assigned_at": time.time_ns(),
+                       "input_hash": hashlib.sha256((row["transcript_text"] or "").encode()).hexdigest()}
+                write_transcript_job(conn, video_id, job)
+                break
+            else:
+                raise RuntimeError("所有文案账号不可用或额度不足：" + "；".join(errors))
         if log:
-            log(f"第 {poll_index + 1} 次检查文案服务：{summarize_transcript_progress(candidates, selected)}")
-        if selected:
-            return {
-                "task_id": task_id,
-                "transcript_text": selected["text"],
-                "raw_result": last_response,
-                "debug": debug,
-            }
-        if isinstance(last_response, dict) and last_response.get("code") == 500:
-            raise RuntimeError(last_response.get("msg") or "transcript_task_failed")
+            log("已分配文案账号 " + job["account_id"])
+        try:
+            # No automatic retry, no account failover once submission begins.
+            create_response = transcript_request_once(
+                "/transcript/createTask", method="POST", retry_auth=False, account=account,
+                payload={"appType": "transcript", "workUrl": video_url, "type": "text", "targetLanguage": "auto"},
+            )
+            if not isinstance(create_response, dict) or create_response.get("code") not in (200, "200"):
+                # A documented quota rejection is definitive, but this video is
+                # still blocked until the next explicit request; never hidden resend.
+                if transcript_is_limit_response(create_response):
+                    job.update(state="rejected", error="transcript_quota_exhausted")
+                    write_transcript_job(conn, video_id, job)
+                    raise TranscriptQuotaError("文案账号额度不足，本次未创建任务；可手动重试分配下一个账号")
+                raise RuntimeError("transcript_create_rejected_or_unknown")
+            task_id = extract_task_id(create_response)
+            if not task_id:
+                raise RuntimeError("transcript_task_id_missing")
+            job.update(state="pending", task_id=task_id)
+            write_transcript_job(conn, video_id, job)  # autocommit, before first poll
+        except TranscriptQuotaError:
+            raise
+        except Exception as exc:
+            job.update(state="creation_uncertain", error=transcript_safe_error(exc, account))
+            write_transcript_job(conn, video_id, job)
+            raise RuntimeError("文案任务创建结果不明，已保留账号并阻止自动重发；请在原账号核对任务") from None
+    account = next((a for a in accounts if a["id"] == job["account_id"]), None)
+    if account is None:
+        raise RuntimeError("原文案任务账号已移除，无法续查；请恢复相同 account id 的配置")
+    # Disabled/limited accounts are still allowed to query their existing tasks.
+    task_id = job["task_id"]
+    if log:
+        log(f"使用原账号续查文案任务 {task_id}")
+    for poll_index in range(TRANSCRIPT_MAX_POLLS):
+        try:
+            response = transcript_request_with_account(account, "/transcript/queryTask", params={"taskId": task_id})
+            data = response.get("data", response) if isinstance(response, dict) else {}
+            status = str(data.get("status") or "").upper() if isinstance(data, dict) else ""
+            job.update(provider_status=status, last_checked_at=now())
+            if status in ("FAILURE", "FAILED", "FAIL", "ERROR"):
+                job.update(state="failed", error="transcript_provider_task_failed")
+                write_transcript_job(conn, video_id, job)
+                raise RuntimeError("文案服务任务失败，任务号已保留；请在原账号检查，不自动创建新任务")
+            if response.get("code") not in (200, "200", None):
+                raise RuntimeError("transcript_query_rejected")
+            if status == "SUCCESS":
+                text = data.get("textContent")
+                if not isinstance(text, str) or not text.strip():
+                    raise RuntimeError("transcript_success_without_text")
+                # Save only after provider success. Titles/partial text never qualify.
+                return {"task_id": task_id, "transcript_text": text.strip(), "raw_result": response,
+                        "provider": "transcriptgenerate", "account_id": account["id"], "job": job}
+            write_transcript_job(conn, video_id, job)
+            if log:
+                log(f"第 {poll_index + 1} 次检查：文案服务处理中")
+        except Exception as exc:
+            job["error"] = transcript_safe_error(exc, account)
+            write_transcript_job(conn, video_id, job)
+            raise RuntimeError(job["error"] + "；已保留任务，下次仅使用原账号续查") from None
+        time.sleep(TRANSCRIPT_POLL_INTERVAL_SECONDS)
+    job["error"] = "transcript_task_timeout"
+    write_transcript_job(conn, video_id, job)
+    raise RuntimeError("文案查询超时，任务已保存；下次只续查原任务，不重新创建")
 
-    short_candidate = select_transcript_candidate(collect_transcript_candidates(last_response), min_length=1, allow_weak=True) if last_response else None
-    if short_candidate:
-        debug["selected_path"] = short_candidate["path"]
-        debug["selected_length"] = short_candidate["length"]
-        raise RuntimeError(
-            f"文案服务没有返回完整文案，当前只拿到{transcript_candidate_label(short_candidate)}"
-        )
-    raise RuntimeError(f"transcript_task_timeout: {truncate_text(last_response)}")
+
+def set_video_promotion(conn, video_id, decision):
+    labels = {"not_ad": "普通内容", "uncertain": "疑似推广", "advertising": "推广"}
+    if decision not in (*labels, "auto"):
+        raise ValueError("请选择普通内容、疑似推广、推广或恢复自动识别")
+    override = None if decision == "auto" else {
+        "decision": decision, "source": "manual", "reviewed_at": now(),
+        "reason": f"管理员手动标记为{labels[decision]}", "evidence": [],
+    }
+    row = conn.execute("""UPDATE videos SET ad_review_override=%s, updated_at=%s
+        WHERE id=%s AND deleted_at IS NULL RETURNING *""",
+        (Json(override) if override is not None else None, now(), video_id)).fetchone()
+    invalidate_bootstrap_cache()
+    return row
 
 
-def save_transcript_for_video(conn, row, log=None):
-    video_url = canonical_video_url(row["share_url"] or row["source_url"])
-    if not video_url:
-        raise RuntimeError("video_link_missing")
-    transcript_result = fetch_transcript_from_transcriptgenerate(video_url, log=log)
-    ts = now()
-    has_transcript, transcript_length = transcript_meta(transcript_result["transcript_text"])
-    conn.execute(
-        """
-        UPDATE videos
-        SET transcript_text = %s, transcript_source = %s, transcript_created_at = %s,
-            has_transcript = %s, transcript_length = %s,
-            status = 'transcript_saved', updated_at = %s
-        WHERE id = %s
-        """,
-        (
-            transcript_result["transcript_text"],
-            f"TranscriptGenerate/task:{transcript_result['task_id']}",
-            ts,
-            has_transcript,
-            transcript_length,
-            ts,
-            row["id"],
-        ),
-    )
-    updated = conn.execute("SELECT * FROM videos WHERE id = %s", (row["id"],)).fetchone()
-    return row_to_video(updated), transcript_result
+def review_video_advertising(conn, video_id):
+    with video_process_lock(video_id):
+        row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
+        if not row:
+            raise ValueError("video not found")
+        cached = advertising.current_review(row)
+        if cached and cached.get("decision") != "error":
+            return cached
+        if not (row["transcript_text"] or "").strip():
+            return {"decision": "pending", "reason": "等待真实文案后识别推广"}
+        review = advertising.classify(row, call_deepseek, parse_deepseek_content)
+        review["reviewed_at"] = now()
+        updated = conn.execute("""UPDATE videos SET ad_review = %s
+            WHERE id = %s AND deleted_at IS NULL
+              AND transcript_text IS NOT DISTINCT FROM %s AND title = %s RETURNING id""",
+            (Json(review), video_id, row["transcript_text"], row["title"])).fetchone()
+        if not updated:
+            return {"decision": "uncertain", "reason": "文案已变化，需要重新识别"}
+        invalidate_bootstrap_cache()
+        current = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
+        return advertising.current_review(current) if current else {"decision": "uncertain", "reason": "视频已删除"}
+
+
+def get_transcript_provider():
+    with TRANSCRIPT_SETTINGS_LOCK:
+        if TRANSCRIPT_SETTINGS_PATH.exists():
+            value = json.loads(TRANSCRIPT_SETTINGS_PATH.read_text(encoding="utf-8"))
+            provider = value.get("provider")
+        else:
+            provider = TRANSCRIPT_PROVIDER
+    if provider not in ("local_asr", "transcriptgenerate"):
+        raise RuntimeError("unsupported_transcript_provider")
+    return provider
+
+
+def check_local_asr_health():
+    try:
+        process = subprocess.run([sys.executable, str(ROOT / "local_asr.py"), "--health-check"],
+                                 capture_output=True, text=True, timeout=45)
+        if process.returncode:
+            return {"ready": False, "status": "unavailable",
+                    "message": "本地 ASR 不可用，请检查依赖、FFmpeg 和模型；运行 scripts/setup_local_asr.py 安装模型。"}
+        result = json.loads(process.stdout)
+        if not isinstance(result, dict) or not isinstance(result.get("ready"), bool) or result.get("status") not in ("ready", "busy"):
+            raise ValueError("invalid local ASR health response")
+        if result["ready"] and result["status"] != "ready":
+            raise ValueError("local ASR probe did not complete")
+        return {"ready": result["ready"], "status": result["status"], "message": str(result.get("message") or "本地 ASR 就绪")}
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return {"ready": False, "status": "unavailable", "message": "本地 ASR 检测失败或超时，未切换转写方式。"}
+
+
+def set_transcript_provider(provider):
+    if provider not in ("local_asr", "transcriptgenerate"):
+        raise ValueError("不支持的转写方式")
+    health = check_local_asr_health() if provider == "local_asr" else None
+    if health is not None and not health["ready"]:
+        return {"provider": get_transcript_provider(), "local_health": health, "saved": False}
+    with TRANSCRIPT_SETTINGS_LOCK:
+        # Atomic replacement keeps credentials/config untouched and survives restarts.
+        fd, temp = tempfile.mkstemp(prefix=".transcription-settings-", dir=TRANSCRIPT_SETTINGS_PATH.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                json.dump({"provider": provider}, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temp, TRANSCRIPT_SETTINGS_PATH)
+        finally:
+            Path(temp).unlink(missing_ok=True)
+    return {"provider": provider, "local_health": health, "saved": True}
+
+
+def fetch_transcript_from_local_asr(video_url, conn, row, log=None):
+    job = {"provider": "local_asr", "task_id": "local-" + uuid.uuid4().hex,
+           "state": "running", "started_at": now(),
+           "input_hash": hashlib.sha256((row["transcript_text"] or "").encode()).hexdigest()}
+    write_transcript_job(conn, row["id"], job)
+    if log:
+        log("本地 ASR 排队/处理中（CPU 单任务，不调用外部文案服务）")
+    try:
+        process = subprocess.run([sys.executable, str(ROOT / "local_asr.py"), "--video-url", video_url],
+                                 capture_output=True, text=True, timeout=10800)
+        if process.returncode:
+            try:
+                error = json.loads(process.stderr.splitlines()[-1]).get("error", "local_asr_failed")
+            except (ValueError, IndexError, AttributeError):
+                error = "local_asr_failed"
+            raise RuntimeError(error)
+        result = json.loads(process.stdout)
+        if not isinstance(result.get("transcript_text"), str) or not result["transcript_text"].strip():
+            raise RuntimeError("local_asr_empty_transcript")
+        job.update(model=result.get("model"), audio_seconds=result.get("audio_seconds"),
+                   elapsed_seconds=result.get("elapsed_seconds"))
+        result.update(task_id=job["task_id"], job=job,
+                      raw_result={key: result.get(key) for key in ("provider", "model", "audio_seconds", "elapsed_seconds", "peak_rss_mb")},
+                      transcript_source="LocalASR/SenseVoiceSmall-int8/task:" + job["task_id"])
+        return result
+    except Exception as exc:
+        error = str(exc) if isinstance(exc, RuntimeError) and str(exc).startswith("local_asr_") else "local_asr_failed; safe to retry locally"
+        job.update(state="failed", error=truncate_error(error))
+        write_transcript_job(conn, row["id"], job)
+        raise
+
+
+def save_transcript_for_video(conn, row, log=None, refresh=False):
+    video, result = _save_transcript_for_video(conn, row, log=log, refresh=refresh)
+    video["ad_review"] = review_video_advertising(conn, video["id"])
+    return video, result
+
+
+def _save_transcript_for_video(conn, row, log=None, refresh=False):
+    video_id = row["id"]
+    # Session advisory lock covers create + poll + save; parallel endpoints cannot
+    # submit twice. Its automatic release on disconnect also handles app crashes.
+    conn.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", ("transcript:" + video_id,))
+    try:
+        row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
+        if not row:
+            raise RuntimeError("video not found")
+        job = row.get("transcript_job") or {}
+        if video_has_saved_transcript(row) and not refresh:
+            if log:
+                log("已有文案，直接保留；未重复提交转写")
+            return row_to_video(row), transcript_saved_result(row)
+        # A completed job can be reused even when a caller explicitly retries.
+        # No paid retranscription without clearing/reconciling the prior task.
+        if job.get("state") == "succeeded" and video_has_saved_transcript(row):
+            return row_to_video(row), transcript_saved_result(row)
+        video_url = canonical_video_url(row["share_url"] or row["source_url"])
+        if not video_url:
+            raise RuntimeError("video_link_missing")
+        original_text = row["transcript_text"] or ""
+        # Snapshot the selected route; active work keeps its original provider.
+        provider = get_transcript_provider()
+        if job.get("provider") == "local_asr" and job.get("state") == "running":
+            provider = "local_asr"
+        if provider == "local_asr" and job.get("provider") == "transcriptgenerate" and job.get("state") not in ("failed", "rejected", "succeeded"):
+            raise RuntimeError("existing_external_transcript_task_requires_reconciliation; local ASR did not call the external service")
+        if provider == "local_asr":
+            result = fetch_transcript_from_local_asr(video_url, conn, row, log=log)
+        elif provider == "transcriptgenerate":
+            result = fetch_transcript_from_transcriptgenerate(video_url, log=log, conn=conn, video_id=video_id)
+        else:
+            raise RuntimeError("unsupported_transcript_provider")
+        ts = now()
+        text = result["transcript_text"]
+        job = result.get("job")
+        with conn.transaction():
+            current = conn.execute("SELECT * FROM videos WHERE id = %s FOR UPDATE", (video_id,)).fetchone()
+            if not current or current["deleted_at"] is not None:
+                raise RuntimeError("video_deleted_during_transcription")
+            current_text = current["transcript_text"] or ""
+            expected_hash = (job or {}).get("input_hash") or hashlib.sha256(original_text.encode()).hexdigest()
+            if hashlib.sha256(current_text.encode()).hexdigest() != expected_hash:
+                # A manual edit wins. Mark the task consumed to prevent reruns.
+                if job:
+                    job.update(state="succeeded", preserved_manual=True)
+                    write_transcript_job(conn, video_id, job)
+                return row_to_video(current), transcript_saved_result(current)
+            conn.execute("""UPDATE videos
+                SET transcript_text = %s, transcript_source = %s, transcript_created_at = %s,
+                    has_transcript = %s, transcript_length = %s, last_error = NULL, ad_review = NULL,
+                    status = CASE WHEN EXISTS (
+                        SELECT 1 FROM claims WHERE video_id = %s AND deleted_at IS NULL
+                    ) THEN status ELSE 'transcript_saved' END, updated_at = %s
+                WHERE id = %s""",
+                (text, result.get("transcript_source") or f"TranscriptGenerate/task:{result['task_id']}", ts, *transcript_meta(text), video_id, ts, video_id))
+            if job:
+                job.update(state="succeeded", completed_at=ts)
+                job.pop("error", None)
+                write_transcript_job(conn, video_id, job)
+        invalidate_bootstrap_cache()
+        updated = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
+        return row_to_video(updated), result
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", ("transcript:" + video_id,))
 
 
 def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
@@ -2070,6 +2532,7 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
             WHERE v.status IN ('transcript_pending', 'transcript_saved', 'created', 'transcript_failed')
               AND v.deleted_at IS NULL
               AND COALESCE(v.retry_count, 0) < 3
+              AND (NOT COALESCE(v.has_transcript, false) OR COALESCE(v.ad_review_override->>'decision', v.ad_review->>'decision', '') NOT IN ('advertising', 'uncertain', 'error'))
             GROUP BY v.id
             HAVING (COALESCE(v.has_transcript, false) = false OR (COALESCE(v.has_transcript, false) = true AND COUNT(c.id) = 0))
             ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
@@ -2116,7 +2579,7 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
             item["stage"] = "claims"
             if log:
                 log(f"{index + 1}/{limit} 正在分析文案并提取装修观点...")
-            result = extract_claims_for_video(conn, row_to_video(current))
+            result = extract_claims_for_video(conn, row_to_video(current), automatic=True)
             item["claim_count"] = len(result.get("claims") or [])
             result_status = result.get("status")
             if result_status == "completed":
@@ -2124,12 +2587,12 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
                 processed.append(item)
                 if log:
                     log(f"{index + 1}/{limit} 处理完成，新增观点 {item['claim_count']} 条")
-            elif result_status == "filtered":
-                item["stage"] = "filtered"
+            elif result_status in ("filtered", "skipped_advertising"):
+                item["stage"] = result_status
                 item["message"] = result.get("message") or "无有效内容"
                 processed.append(item)
                 if log:
-                    log(f"{index + 1}/{limit} 无有效内容：模型未提取到通用装修观点")
+                    log(f"{index + 1}/{limit} 已跳过：{item['message']}")
             else:
                 item["stage"] = "failed"
                 item["error"] = result.get("message") or result_status or "观点提取失败"
@@ -2178,6 +2641,7 @@ def process_pending_queue(conn, limit=1, delay_seconds=0, log=None):
         WHERE v.status IN ('transcript_pending', 'transcript_saved', 'created', 'transcript_failed')
           AND v.deleted_at IS NULL
           AND COALESCE(v.retry_count, 0) < 3
+              AND (NOT COALESCE(v.has_transcript, false) OR COALESCE(v.ad_review_override->>'decision', v.ad_review->>'decision', '') NOT IN ('advertising', 'uncertain', 'error'))
         GROUP BY v.id
         HAVING (COALESCE(v.has_transcript, false) = false OR (COALESCE(v.has_transcript, false) = true AND COUNT(c.id) = 0))
         """
@@ -2198,47 +2662,24 @@ def retry_video_from_transcript(video_id, log=None):
         if log:
             log(f"{video_id} {row['title']} 从获取文案开始重试")
         conn.execute(
-            """
-            UPDATE videos
-            SET transcript_text = NULL, transcript_source = NULL, transcript_created_at = NULL,
-                has_transcript = false, transcript_length = 0,
-                retry_count = COALESCE(retry_count, 0) + 1,
-                last_retry_at = %s, last_error = NULL,
-                status = 'transcript_pending', updated_at = %s
-            WHERE id = %s
-            """,
-            (now(), now(), video_id),
+            "UPDATE videos SET retry_count = COALESCE(retry_count, 0) + 1, last_retry_at = %s WHERE id = %s AND deleted_at IS NULL",
+            (now(), video_id),
         )
-        row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
         if log:
             log(f"{video_id} 拉取文案中...")
-        video, transcript_result = save_transcript_for_video(conn, row, log=log)
+        video, transcript_result = save_transcript_for_video(conn, row, log=log, refresh=True)
         transcript_len = int(video["transcript_length"] or 0)
         if log:
             log(f"{video_id} 文案成功，长度 {transcript_len}")
-        if transcript_len < MIN_TRANSCRIPT_LENGTH:
-            conn.execute(
-                """
-                UPDATE videos
-                SET status = 'transcript_failed', last_error = %s, updated_at = %s
-                WHERE id = %s
-                """,
-                (f"文案过短，长度 {transcript_len}", now(), video_id),
-            )
-            raise RuntimeError(f"文案过短，长度 {transcript_len}")
         if log:
             log(f"{video_id} DeepSeek 提取观点中...")
-        conn.execute(
-            "UPDATE claims SET deleted_at = %s, deleted_by = %s, delete_reason = %s WHERE video_id = %s AND deleted_at IS NULL",
-            (now(), "system", "retry_full", video_id),
-        )
-        result = extract_claims_for_video(conn, video)
-        if result.get("status") not in ("completed", "filtered"):
+        result = extract_claims_for_video(conn, video, automatic=True)
+        if result.get("status") not in ("completed", "filtered", "skipped_advertising"):
             raise RuntimeError(result.get("message") or result.get("status") or "观点提取失败")
         if result.get("status") == "completed":
             conn.execute("UPDATE videos SET last_error = NULL, updated_at = %s WHERE id = %s", (now(), video_id))
         if log:
-            if result.get("status") == "filtered":
+            if result.get("status") in ("filtered", "skipped_advertising"):
                 log(f"{video_id} 无有效内容：模型未提取到通用装修观点")
             else:
                 log(f"{video_id} 完成，观点 {len(result.get('claims') or [])} 条")
@@ -2313,14 +2754,14 @@ def run_video_retry_job(video_id, job_id=None):
     item = {"video_id": video_id, "stage": "started"}
     try:
         result = retry_video_from_transcript(video_id, log=queue_log)
-        item["stage"] = "filtered" if result.get("status") == "filtered" else "completed"
+        item["stage"] = result.get("status") if result.get("status") in ("filtered", "skipped_advertising") else "completed"
         item["claim_count"] = len(result.get("claims") or [])
         with QUEUE_JOB_LOCK:
             QUEUE_JOB["processed"] = [item]
             QUEUE_JOB["failed"] = []
             QUEUE_JOB["remaining"] = None
-        if result.get("status") == "filtered":
-            queue_log("单条重试结束，无有效内容")
+        if result.get("status") in ("filtered", "skipped_advertising"):
+            queue_log("单条重试结束，已跳过观点提取：" + (result.get("message") or "无有效内容"))
         else:
             queue_log(f"单条重试结束，成功 1 条，观点 {item['claim_count']} 条")
     except Exception as exc:
@@ -2329,10 +2770,11 @@ def run_video_retry_job(video_id, job_id=None):
         try:
             with connect() as conn:
                 row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
-                conn.execute(
-                    "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
-                    (video_status_for_processing_error(row), item["error"], now(), video_id),
-                )
+                if row:
+                    conn.execute(
+                        "UPDATE videos SET last_error = %s, updated_at = %s WHERE id = %s AND deleted_at IS NULL",
+                        (item["error"], now(), video_id),
+                    )
         except Exception:
             pass
         with QUEUE_JOB_LOCK:
@@ -2357,6 +2799,7 @@ def insert_claims(conn, video, run_id, claims):
         item = {
             "id": claim_id,
             "video_id": video["id"],
+            "source_video_is_promotional": (video.get("ad_review") or {}).get("decision") == "advertising",
             "extraction_run_id": run_id,
             "object_name": claim.get("object_name") or "未提及",
             "stance": claim.get("stance") or "未明确",
@@ -2368,7 +2811,7 @@ def insert_claims(conn, video, run_id, claims):
             "conditions": claim.get("conditions") or "未提及",
             "alternatives": claim.get("alternatives") or [],
             "price_info": claim.get("price_info") or "未提及",
-            "source_video_url": claim.get("source_video_url") or video["source_url"],
+            "source_video_url": video["source_url"],
             "created_at": now(),
         }
         conn.execute(
@@ -2401,22 +2844,80 @@ def insert_claims(conn, video, run_id, claims):
     return inserted
 
 
-def extract_claims_for_video(conn, video):
+def delete_video_and_claims(conn, video_id, deleted_at, delete_reason, delete_claims=True):
+    with conn.transaction():
+        row = conn.execute(
+            "SELECT id FROM videos WHERE id = %s AND deleted_at IS NULL FOR UPDATE", (video_id,)
+        ).fetchone()
+        if not row:
+            return False
+        if delete_claims:
+            conn.execute(
+                """
+                UPDATE claims SET deleted_at = %s, deleted_by = %s, delete_reason = %s
+                WHERE video_id = %s AND deleted_at IS NULL
+                """,
+                (deleted_at, "admin", delete_reason, video_id),
+            )
+        conn.execute(
+            """
+            UPDATE videos SET deleted_at = %s, deleted_by = %s, delete_reason = %s, updated_at = %s
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (deleted_at, "admin", delete_reason, deleted_at, video_id),
+        )
+    return True
+
+
+def replace_claims_and_status(conn, video, run_id, claims, status, message=None):
+    with conn.transaction():
+        current = conn.execute(
+            "SELECT transcript_text, deleted_at FROM videos WHERE id = %s FOR UPDATE", (video["id"],)
+        ).fetchone()
+        if not current or current["deleted_at"] is not None:
+            raise ValueError("video not found")
+        if current["transcript_text"] != video["transcript_text"]:
+            raise ValueError("transcript changed during extraction")
+        inserted = insert_claims(conn, video, run_id, claims)
+        conn.execute(
+            "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
+            (status, message, now(), video["id"]),
+        )
+    return inserted
+
+
+def record_extraction_error(conn, video, run_id, status, error_message, preserve_status=False):
+    conn.execute(
+        "UPDATE extraction_runs SET status = %s, error_message = %s WHERE id = %s",
+        (status, error_message, run_id),
+    )
+    conn.execute(
+        """
+        UPDATE videos SET status = CASE WHEN %s OR EXISTS (
+            SELECT 1 FROM claims WHERE video_id = %s AND deleted_at IS NULL
+        ) THEN status ELSE %s END, last_error = %s, updated_at = %s
+        WHERE id = %s AND deleted_at IS NULL AND transcript_text = %s
+        """,
+        (preserve_status, video["id"], video_status_for_processing_error(video), error_message, now(), video["id"], video["transcript_text"]),
+    )
+
+
+def extract_claims_for_video(conn, video, automatic=False):
     with video_process_lock(video["id"]):
+        if automatic:
+            review = review_video_advertising(conn, video["id"])
+            if review.get("decision") != "not_ad":
+                return {"status": "skipped_advertising", "claims": [], "ad_review": review,
+                        "message": review.get("reason") or "推广识别未通过，已跳过自动观点提取"}
         return extract_claims_for_video_locked(conn, video)
 
 
 def extract_claims_for_video_locked(conn, video):
-    if not video["transcript_text"]:
-        raise ValueError("transcript_text is empty")
-    transcript_length = int(video.get("transcript_length") or len((video.get("transcript_text") or "").strip()))
+    transcript_length = len((video.get("transcript_text") or "").strip())
     if transcript_length < MIN_TRANSCRIPT_LENGTH:
         filtered_message = FILTER_REASON_MESSAGES["duplicate_or_too_thin"]
         detail_message = f"{filtered_message}，当前长度 {transcript_length}"
-        conn.execute(
-            "UPDATE videos SET status = 'claims_filtered', last_error = %s, updated_at = %s WHERE id = %s",
-            (detail_message, now(), video["id"]),
-        )
+        replace_claims_and_status(conn, video, None, [], "claims_filtered", detail_message)
         return {
             "run_id": None,
             "status": "filtered",
@@ -2429,7 +2930,7 @@ def extract_claims_for_video_locked(conn, video):
     input_hash = hashlib.sha256(video["transcript_text"].encode("utf-8")).hexdigest()
     run_id = new_id("run")
     raw_response, error = call_deepseek(prompt)
-    status = "completed" if raw_response else error
+    status = "completed" if raw_response else (error or "empty_response")
     conn.execute(
         """
         INSERT INTO extraction_runs (
@@ -2450,12 +2951,9 @@ def extract_claims_for_video_locked(conn, video):
             now(),
         ),
     )
-    if error:
-        error_message = truncate_error(error)
-        conn.execute(
-            "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
-            (video_status_for_processing_error(video), error_message, now(), video["id"]),
-        )
+    if status != "completed":
+        error_message = truncate_error(status)
+        record_extraction_error(conn, video, run_id, status, error_message)
         return {
             "run_id": run_id,
             "status": status,
@@ -2467,38 +2965,34 @@ def extract_claims_for_video_locked(conn, video):
 
     try:
         extracted = parse_deepseek_content(raw_response)
-    except ValueError as exc:
-        error_message = truncate_error(str(exc))
-        conn.execute(
-            "UPDATE extraction_runs SET status = %s, error_message = %s WHERE id = %s",
-            ("parse_failed", error_message, run_id),
+        if not isinstance(extracted, dict) or not isinstance(extracted.get("claims"), list):
+            raise ValueError("deepseek_invalid_claims_shape")
+        sanitized_claims, dropped_claims = sanitize_claims(
+            extracted["claims"], transcript_text=video["transcript_text"], require_evidence=True
         )
-        conn.execute(
-            "UPDATE videos SET status = %s, last_error = %s, updated_at = %s WHERE id = %s",
-            (video_status_for_processing_error(video), error_message, now(), video["id"]),
-        )
-        raise
-    sanitized_claims, dropped_claims = sanitize_claims(extracted.get("claims", []))
-    claims = insert_claims(conn, video, run_id, sanitized_claims)
-    if claims:
-        conn.execute(
-            "UPDATE videos SET status = 'claims_extracted', last_error = NULL, updated_at = %s WHERE id = %s",
-            (now(), video["id"]),
-        )
-        return {"run_id": run_id, "status": "completed", "claims": claims, "dropped_claims": dropped_claims}
+        if sanitized_claims:
+            claims = replace_claims_and_status(conn, video, run_id, sanitized_claims, "claims_extracted")
+            return {"run_id": run_id, "status": "completed", "claims": claims, "dropped_claims": dropped_claims}
 
-    filtered_message = build_filtered_message(extracted, dropped_claims)
-    conn.execute(
-        "UPDATE videos SET status = 'claims_filtered', last_error = %s, updated_at = %s WHERE id = %s",
-        (filtered_message, now(), video["id"]),
-    )
-    return {
-        "run_id": run_id,
-        "status": "filtered",
-        "claims": [],
-        "dropped_claims": dropped_claims,
-        "message": filtered_message,
-    }
+        if extracted["claims"] or extracted.get("filter_reason") not in FILTER_REASON_MESSAGES:
+            raise ValueError("quality_check_failed" if extracted["claims"] else "deepseek_untrusted_empty_claims")
+        filtered_message = build_filtered_message(extracted, dropped_claims)
+        replace_claims_and_status(conn, video, run_id, [], "claims_filtered", filtered_message)
+        return {
+            "run_id": run_id,
+            "status": "filtered",
+            "claims": [],
+            "dropped_claims": dropped_claims,
+            "message": filtered_message,
+        }
+    except ValueError as exc:
+        failure_status = "quality_check_failed" if str(exc) == "quality_check_failed" else "parse_failed"
+        record_extraction_error(conn, video, run_id, failure_status, truncate_error(str(exc)),
+                                preserve_status=failure_status == "quality_check_failed")
+        raise
+    except Exception as exc:
+        record_extraction_error(conn, video, run_id, "insert_failed", truncate_error(str(exc)))
+        raise
 
 
 def build_video_filters(query):
@@ -2523,6 +3017,74 @@ def build_video_filters(query):
     return clauses, params
 
 
+def fetch_sources(conn):
+    rows = conn.execute(
+        """
+        WITH source_video_counts AS (
+          SELECT
+            source_id,
+            COUNT(*) AS video_count,
+            COUNT(*) FILTER (WHERE status = 'transcript_pending') AS pending_count
+          FROM videos
+          WHERE deleted_at IS NULL
+          GROUP BY source_id
+        ),
+        source_claim_counts AS (
+          SELECT v.source_id, COUNT(c.id) AS claim_count
+          FROM videos v
+          JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
+          WHERE v.deleted_at IS NULL
+          GROUP BY v.source_id
+        )
+        SELECT
+          s.*,
+          COALESCE(svc.video_count, 0) AS video_count,
+          COALESCE(scc.claim_count, 0) AS claim_count,
+          COALESCE(svc.pending_count, 0) AS pending_count
+        FROM sources s
+        LEFT JOIN source_video_counts svc ON svc.source_id = s.id
+        LEFT JOIN source_claim_counts scc ON scc.source_id = s.id
+        ORDER BY
+          CASE s.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 ELSE 2 END,
+          s.created_at DESC, s.id
+        """
+    ).fetchall()
+    return [row_to_source(row) for row in rows]
+
+
+def fetch_video_facets(conn):
+    # Use all active videos, including those without a source; page filters never apply here.
+    rows = conn.execute(
+        """
+        SELECT platform, creator, COUNT(*) AS video_count
+        FROM videos
+        WHERE deleted_at IS NULL
+        GROUP BY platform, creator
+        ORDER BY platform, creator
+        """
+    ).fetchall()
+    platform_counts = {}
+    creators = []
+    total = 0
+    for row in rows:
+        platform = row["platform"] or ""
+        creator = row["creator"] or ""
+        count = int(row["video_count"])
+        total += count
+        if platform.strip():
+            platform_counts[platform] = platform_counts.get(platform, 0) + count
+        if creator.strip():
+            creators.append({"platform": platform, "creator": creator, "video_count": count})
+    return {
+        "platforms": [
+            {"platform": platform, "video_count": count}
+            for platform, count in platform_counts.items()
+        ],
+        "creators": creators,
+        "total": total,
+    }
+
+
 def fetch_video_page(conn, query=None, limit=DEFAULT_VIDEO_LIMIT, offset=0):
     query = query or {}
     clauses, params = build_video_filters(query)
@@ -2535,7 +3097,7 @@ def fetch_video_page(conn, query=None, limit=DEFAULT_VIDEO_LIMIT, offset=0):
             v.id, v.source_id, v.platform, v.creator, v.title, v.source_url,
             v.share_url, v.share_text, v.published_at,
             v.has_transcript, v.transcript_length,
-            v.transcript_source, v.transcript_created_at,
+            v.transcript_source, v.transcript_created_at, v.ad_review, v.ad_review_override, v.transcript_text,
             v.retry_count, v.last_retry_at, v.last_error, v.status,
             v.created_at, v.updated_at, v.published_at_ts
           FROM videos v
@@ -2555,7 +3117,7 @@ def fetch_video_page(conn, query=None, limit=DEFAULT_VIDEO_LIMIT, offset=0):
           v.share_url, v.share_text, v.published_at,
           COALESCE(v.has_transcript, false) AS has_transcript,
           COALESCE(v.transcript_length, 0) AS transcript_length,
-          v.transcript_source, v.transcript_created_at,
+          v.transcript_source, v.transcript_created_at, v.ad_review, v.ad_review_override, v.transcript_text,
           v.retry_count, v.last_retry_at, v.last_error, v.status,
           v.created_at, v.updated_at,
           COALESCE(cc.claim_count, 0) AS claim_count
@@ -2571,14 +3133,17 @@ def fetch_video_page(conn, query=None, limit=DEFAULT_VIDEO_LIMIT, offset=0):
         "limit": limit,
         "offset": offset,
         "has_more": offset + len(rows) < int(total or 0),
+        "facets": fetch_video_facets(conn),
     }
 
 
 def progress_state_sql():
     return """
       CASE
-        WHEN v.status = 'transcript_failed' OR COALESCE(v.last_error, '') != '' THEN '失败'
+        WHEN COALESCE(v.ad_review_override->>'decision', v.ad_review->>'decision') = 'advertising' THEN '已完成'
+        WHEN COALESCE(v.ad_review_override->>'decision', v.ad_review->>'decision') IN ('uncertain', 'error') THEN '待确认'
         WHEN v.status = 'claims_filtered' THEN '已完成'
+        WHEN v.status = 'transcript_failed' OR COALESCE(v.last_error, '') != '' THEN '失败'
         WHEN COALESCE(v.source_url, '') = '' AND COALESCE(v.share_url, '') = '' THEN '缺链接'
         WHEN COALESCE(cc.claim_count, 0) > 0 THEN '已完成'
         WHEN COALESCE(v.has_transcript, false) THEN '待观点'
@@ -2610,7 +3175,7 @@ def fetch_progress_video_page(conn, query=None, limit=DEFAULT_VIDEO_LIMIT, offse
             v.share_url, v.share_text, v.published_at,
             COALESCE(v.has_transcript, false) AS has_transcript,
             COALESCE(v.transcript_length, 0) AS transcript_length,
-            v.transcript_source, v.transcript_created_at,
+            v.transcript_source, v.transcript_created_at, v.ad_review, v.ad_review_override, v.transcript_text,
             v.retry_count, v.last_retry_at, v.last_error, v.status,
             v.created_at, v.updated_at, v.published_at_ts,
             COALESCE(cc.claim_count, 0) AS claim_count,
@@ -2671,41 +3236,89 @@ def fetch_progress_summary(conn):
     return counts
 
 
+
+def fetch_knowledge_facets(conn):
+    # Facets always describe the whole active library, independent of page/search filters.
+    tags = sorted(set(TAGS["space_tags"] + TAGS["topic_tags"]))
+    rows = conn.execute(
+        """
+        WITH active_claims AS MATERIALIZED (
+          SELECT id, process_stage, stance, space_tags, topic_tags
+          FROM claims
+          WHERE deleted_at IS NULL
+        )
+        SELECT 'total' AS facet, '' AS value, COUNT(*) AS count FROM active_claims
+        UNION ALL
+        SELECT 'stages', process_stage, COUNT(*) FROM active_claims GROUP BY process_stage
+        UNION ALL
+        SELECT 'stances', stance, COUNT(*) FROM active_claims GROUP BY stance
+        UNION ALL
+        SELECT 'tags', candidate.tag, COUNT(c.id)
+        FROM unnest(%s::text[]) AS candidate(tag)
+        LEFT JOIN active_claims c ON (
+          c.space_tags ? candidate.tag OR c.topic_tags ? candidate.tag
+          OR c.process_stage LIKE ('%%' || candidate.tag || '%%')
+        )
+        GROUP BY candidate.tag
+        """,
+        (tags,),
+    ).fetchall()
+    facets = {"total": 0, "stages": {}, "stances": {}, "tags": {}}
+    for row in rows:
+        count = int(row["count"])
+        if row["facet"] == "total":
+            facets["total"] = count
+        else:
+            facets[row["facet"]][row["value"]] = count
+    return facets
+
+
+def fetch_knowledge_page(conn, query=None, limit=DEFAULT_KNOWLEDGE_LIMIT, offset=0):
+    query = query or {}
+    clauses = ["deleted_at IS NULL"]
+    params = []
+    stage = (query.get("stage") or [""])[0]
+    stages = [item.strip() for item in (query.get("stages") or [""])[0].split(",") if item.strip()]
+    tag = (query.get("tag") or [""])[0]
+    stance = (query.get("stance") or [""])[0]
+    q = (query.get("q") or [""])[0]
+    if stages:
+        clauses.append("process_stage = ANY(%s)")
+        params.append(stages)
+    elif stage:
+        clauses.append("process_stage = %s")
+        params.append(stage)
+    if tag:
+        # Keep legacy tag=<stance> clients working alongside the explicit stance parameter.
+        clauses.append("(space_tags ? %s OR topic_tags ? %s OR process_stage LIKE %s OR stance = %s)")
+        params.extend([tag, tag, f"%{tag}%", tag])
+    if stance:
+        clauses.append("stance = %s")
+        params.append(stance)
+    if q:
+        clauses.append(
+            "(COALESCE(object_name, '') || ' ' || COALESCE(original_conclusion, '') || ' ' || COALESCE(conditions, '') || ' ' || COALESCE(original_reasons::text, '') ILIKE %s)"
+        )
+        params.append(f"%{q}%")
+    where = f"WHERE {' AND '.join(clauses)}"
+    total = conn.execute(f"SELECT COUNT(*) AS count FROM claims {where}", params).fetchone()["count"]
+    rows = conn.execute(
+        f"SELECT * FROM claims {where} ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s",
+        [*params, limit, offset],
+    ).fetchall()
+    return {
+        "claims": claims_with_source_labels(conn, rows),
+        "total": int(total or 0),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(rows) < int(total or 0),
+        "facets": fetch_knowledge_facets(conn),
+    }
+
+
 def build_bootstrap_payload(conn):
     video_page = fetch_video_page(conn, limit=DEFAULT_VIDEO_LIMIT, offset=0)
-    source_stats_rows = conn.execute(
-        """
-        SELECT
-          v.source_id,
-          COUNT(DISTINCT v.id) AS video_count,
-          COUNT(DISTINCT v.id) FILTER (WHERE v.status = 'transcript_pending') AS pending_count,
-          COUNT(c.id) AS claim_count
-        FROM videos v
-        LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
-        WHERE v.source_id IS NOT NULL AND v.deleted_at IS NULL
-        GROUP BY v.source_id
-        """
-    ).fetchall()
-    source_stats = {row["source_id"]: dict(row) for row in source_stats_rows}
-
-    source_rows = []
-    if source_stats:
-        source_rows = conn.execute(
-            """
-            SELECT *
-            FROM sources
-            WHERE id = ANY(%s)
-            ORDER BY
-              CASE priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 ELSE 2 END,
-              created_at DESC
-            """,
-            (list(source_stats.keys()),),
-        ).fetchall()
-    sources = []
-    for row in source_rows:
-        item = dict(row)
-        item.update(source_stats.get(row["id"], {"video_count": 0, "claim_count": 0, "pending_count": 0}))
-        sources.append(row_to_source(item))
+    sources = fetch_sources(conn)
 
     stats_row = conn.execute(
         """
@@ -2716,7 +3329,7 @@ def build_bootstrap_payload(conn):
         WHERE deleted_at IS NULL
         """
     ).fetchone()
-    claim_count = conn.execute("SELECT COUNT(*) AS count FROM claims WHERE deleted_at IS NULL").fetchone()["count"]
+    knowledge_facets = fetch_knowledge_facets(conn)
 
     return {
         "health": {
@@ -2728,18 +3341,19 @@ def build_bootstrap_payload(conn):
         },
         "sources": sources,
         "videos": video_page["videos"],
+        "video_facets": video_page["facets"],
         "videos_page": {
             "total": video_page["total"],
             "limit": video_page["limit"],
             "offset": video_page["offset"],
             "has_more": video_page["has_more"],
         },
-        "knowledge": {"claims": [], "deferred": True},
+        "knowledge": {"claims": [], "deferred": True, "facets": knowledge_facets},
         "stats": {
             "source_count": len(sources),
             "video_count": int(stats_row["video_count"] or 0),
             "transcript_count": int(stats_row["transcript_count"] or 0),
-            "claim_count": int(claim_count or 0),
+            "claim_count": knowledge_facets["total"],
         },
     }
 
@@ -2776,13 +3390,9 @@ class AppHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(STATIC_ROOT or ROOT), **kwargs)
 
     def end_headers(self):
-        headers = getattr(self, "headers", None)
-        origin = headers.get("Origin") if headers else None
-        self.send_header("Access-Control-Allow-Origin", origin or "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Credentials", "true")
-        self.send_header("Vary", "Origin")
+        # UI and API share an origin; do not grant arbitrary sites credentialed access.
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         if not getattr(self, "path", "").startswith("/api/"):
             self.send_header("Cache-Control", "no-cache")
         super().end_headers()
@@ -2842,16 +3452,29 @@ class AppHandler(SimpleHTTPRequestHandler):
     def handle_get(self, parsed):
         path = parsed.path
         query = parse_qs(parsed.query)
+        if PUBLIC_READ_ONLY:
+            public_paths = {"/api/health", "/api/admin/session", "/api/bootstrap", "/api/sources",
+                            "/api/videos", "/api/knowledge", "/api/progress-summary", "/api/progress-videos"}
+            video_detail = len(path.split("/")) == 4 and path.startswith("/api/videos/")
+            if path not in public_paths and not video_detail:
+                return self.send_error_json(403, "public instance is read-only")
+            if video_detail and query.get("include_runs"):
+                return self.send_error_json(403, "extraction history is private")
         if path == "/api/health":
+            available, message = database_readiness()
             return self.send_json(
                 {
-                    "ok": True,
+                    "ok": available,
                     "db": "postgresql",
-                    "db_available": DB_STATUS["available"],
-                    "db_message": DB_STATUS["message"],
+                    "db_available": available,
+                    "db_message": message,
                     "model": DEEPSEEK_MODEL,
-                }
+                },
+                status=200 if available else 503,
             )
+
+        if path == "/api/settings/transcription":
+            return self.send_json({"provider": get_transcript_provider()})
 
         if path == "/api/admin/session":
             return self.send_json(admin_session_payload(self))
@@ -2875,7 +3498,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 DOUYIN_LOGIN_JOB.update(
                     {
                         "status": "logged_in" if status.get("logged_in") else "missing",
-                        "message": "抖音登录态有效。" if status.get("logged_in") else "未检测到有效抖音登录态。",
+                        "message": "已检测到抖音登录凭据；单条作品仍可能因权限或删除无法访问。" if status.get("logged_in") else "未检测到抖音登录凭据，请重新登录。",
                         "logged_in": bool(status.get("logged_in")),
                         "cookie_count": int(status.get("cookie_count") or 0),
                         "valid_cookie_names": status.get("valid_cookie_names") or [],
@@ -2937,38 +3560,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 )
 
             if path == "/api/sources":
-                rows = conn.execute(
-                    """
-                    WITH source_video_counts AS (
-                      SELECT
-                        source_id,
-                        COUNT(*) AS video_count,
-                        COUNT(*) FILTER (WHERE status = 'transcript_pending') AS pending_count
-                      FROM videos
-                      WHERE deleted_at IS NULL
-                      GROUP BY source_id
-                    ),
-                    source_claim_counts AS (
-                      SELECT v.source_id, COUNT(c.id) AS claim_count
-                      FROM videos v
-                      JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
-                      WHERE v.deleted_at IS NULL
-                      GROUP BY v.source_id
-                    )
-                    SELECT
-                      s.*,
-                      COALESCE(svc.video_count, 0) AS video_count,
-                      COALESCE(scc.claim_count, 0) AS claim_count,
-                      COALESCE(svc.pending_count, 0) AS pending_count
-                    FROM sources s
-                    JOIN source_video_counts svc ON svc.source_id = s.id
-                    LEFT JOIN source_claim_counts scc ON scc.source_id = s.id
-                    ORDER BY
-                      CASE s.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 ELSE 2 END,
-                      s.created_at DESC
-                    """
-                ).fetchall()
-                return self.send_json({"sources": [row_to_source(row) for row in rows]})
+                return self.send_json({"sources": fetch_sources(conn)})
 
             if path == "/api/videos":
                 limit = query_int(query, "limit", DEFAULT_VIDEO_LIMIT, minimum=1, maximum=MAX_PAGE_LIMIT)
@@ -2991,7 +3583,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 claims = conn.execute("SELECT * FROM claims WHERE video_id = %s AND deleted_at IS NULL ORDER BY created_at", (video_id,)).fetchall()
                 response = {
                     "video": row_to_video(row),
-                    "claims": [row_to_claim(item) for item in claims],
+                    "claims": [row_to_claim(item, source_video=row) for item in claims],
                 }
                 if (query.get("include_runs") or [""])[0] == "1":
                     runs = conn.execute(
@@ -3002,43 +3594,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.send_json(response)
 
             if path == "/api/knowledge":
-                clauses = ["deleted_at IS NULL"]
-                params = []
-                stage = (query.get("stage") or [""])[0]
-                stages = [item.strip() for item in (query.get("stages") or [""])[0].split(",") if item.strip()]
-                tag = (query.get("tag") or [""])[0]
-                q = (query.get("q") or [""])[0]
                 limit = query_int(query, "limit", DEFAULT_KNOWLEDGE_LIMIT, minimum=1, maximum=MAX_PAGE_LIMIT)
                 offset = query_int(query, "offset", 0, minimum=0)
-                if stages:
-                    clauses.append("process_stage = ANY(%s)")
-                    params.append(stages)
-                elif stage:
-                    clauses.append("process_stage = %s")
-                    params.append(stage)
-                if tag:
-                    clauses.append("(space_tags ? %s OR topic_tags ? %s OR stance = %s)")
-                    params.extend([tag, tag, tag])
-                if q:
-                    clauses.append(
-                        "(COALESCE(object_name, '') || ' ' || COALESCE(original_conclusion, '') || ' ' || COALESCE(conditions, '') || ' ' || COALESCE(original_reasons::text, '') ILIKE %s)"
-                    )
-                    params.append(f"%{q}%")
-                where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-                total = conn.execute(f"SELECT COUNT(*) AS count FROM claims {where}", params).fetchone()["count"]
-                rows = conn.execute(
-                    f"SELECT * FROM claims {where} ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s",
-                    [*params, limit, offset],
-                ).fetchall()
-                return self.send_json(
-                    {
-                        "claims": [row_to_claim(row) for row in rows],
-                        "total": int(total or 0),
-                        "limit": limit,
-                        "offset": offset,
-                        "has_more": offset + len(rows) < int(total or 0),
-                    }
-                )
+                return self.send_json(fetch_knowledge_page(conn, query=query, limit=limit, offset=offset))
 
             if path == "/api/queue/next":
                 transcript_row = conn.execute(
@@ -3047,6 +3605,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     FROM videos v
                     LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
                     WHERE v.status = 'transcript_saved' AND v.deleted_at IS NULL
+                      AND (NOT COALESCE(v.has_transcript, false) OR COALESCE(v.ad_review_override->>'decision', v.ad_review->>'decision', '') NOT IN ('advertising', 'uncertain', 'error'))
                     GROUP BY v.id
                     HAVING COUNT(c.id) = 0
                     ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
@@ -3078,7 +3637,19 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def handle_post(self, parsed):
         path = parsed.path
+        if PUBLIC_READ_ONLY:
+            return self.send_error_json(403, "public instance is read-only")
+        if is_admin_operation_path(path) and not require_admin(self):
+            return
         payload = read_json(self)
+        if path == "/api/settings/transcription/check-local":
+            health = check_local_asr_health()
+            return self.send_json(health, status=200 if health["ready"] else 503)
+
+        if path == "/api/settings/transcription":
+            result = set_transcript_provider(payload.get("provider"))
+            return self.send_json(result, status=200 if result["saved"] else 503)
+
         if path == "/api/admin/login":
             if not ADMIN_PASSWORD:
                 return self.send_error_json(503, "admin password is not configured")
@@ -3126,6 +3697,16 @@ class AppHandler(SimpleHTTPRequestHandler):
         invalidate_bootstrap_cache()
 
         with connect() as conn:
+            if path.startswith("/api/videos/") and path.endswith("/promotion"):
+                video_id = path.split("/")[3]
+                try:
+                    row = set_video_promotion(conn, video_id, payload.get("decision"))
+                except ValueError as exc:
+                    return self.send_error_json(400, str(exc))
+                if not row:
+                    return self.send_error_json(404, "video not found")
+                return self.send_json({"video": row_to_video(row)})
+
             if path == "/api/sources":
                 require_fields(payload, ["platform", "name"])
                 source_id = payload.get("id") or new_id("src")
@@ -3170,6 +3751,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT(source_url) DO UPDATE SET
                       title=excluded.title,
+                      ad_review=CASE WHEN videos.title IS DISTINCT FROM excluded.title THEN NULL ELSE videos.ad_review END,
                       platform=excluded.platform,
                       creator=excluded.creator,
                       share_url=excluded.share_url,
@@ -3203,7 +3785,10 @@ class AppHandler(SimpleHTTPRequestHandler):
                     ),
                 )
                 row = conn.execute("SELECT * FROM videos WHERE source_url = %s AND deleted_at IS NULL", (payload["source_url"],)).fetchone()
-                return self.send_json({"video": row_to_video(row)}, status=201)
+                video = row_to_video(row)
+                if row["has_transcript"]:
+                    video["ad_review"] = review_video_advertising(conn, row["id"])
+                return self.send_json({"video": video}, status=201)
 
             if path == "/api/videos/batch-collect":
                 require_fields(payload, ["platform", "creator", "profile_url"])
@@ -3217,118 +3802,94 @@ class AppHandler(SimpleHTTPRequestHandler):
                 share_url = canonical_video_url(payload.get("share_url") or extract_first_url(share_text))
                 if not share_url:
                     raise ValueError("missing share_text or share_url")
-
-                fallback_transcript = (payload.get("transcript_text") or "").strip()
-                transcript_source = (payload.get("transcript_source") or "").strip() or "manual"
-                if fallback_transcript:
-                    transcript_result = {
-                        "task_id": "provided_transcript",
-                        "transcript_text": fallback_transcript,
-                        "raw_result": {"source": transcript_source},
-                    }
+                text = (payload.get("transcript_text") or "").strip()
+                source = (payload.get("transcript_source") or "").strip() or "manual"
+                existing = conn.execute("SELECT * FROM videos WHERE source_url = %s", (share_url,)).fetchone()
+                ts = now()
+                video_id = existing["id"] if existing else payload.get("id") or new_id("vid")
+                published_at = payload.get("published_at") or (existing["published_at"] if existing else None)
+                # Persist the video first: a failed/uncertain create still has a
+                # durable task record. Duplicate imports keep existing transcripts.
+                conn.execute("""INSERT INTO videos (
+                    id, source_id, platform, creator, title, source_url, share_url, share_text,
+                    published_at, published_at_ts, transcript_text, transcript_source,
+                    transcript_created_at, has_transcript, transcript_length, status, created_at, updated_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT(source_url) DO UPDATE SET
+                    title=excluded.title,
+                    ad_review=CASE WHEN videos.title IS DISTINCT FROM excluded.title THEN NULL ELSE videos.ad_review END,
+                    platform=excluded.platform, creator=excluded.creator,
+                    share_url=excluded.share_url, share_text=excluded.share_text,
+                    published_at=COALESCE(excluded.published_at, videos.published_at),
+                    published_at_ts=COALESCE(excluded.published_at_ts, videos.published_at_ts),
+                    deleted_at=NULL, deleted_by=NULL, delete_reason=NULL, updated_at=excluded.updated_at""",
+                    (video_id, payload.get("source_id") or (existing["source_id"] if existing else None),
+                     payload.get("platform") or (existing["platform"] if existing else None) or infer_platform(share_url),
+                     payload.get("creator") or (existing["creator"] if existing else None) or "待识别",
+                     payload.get("title") or (existing["title"] if existing else None) or infer_title(share_text, text),
+                     share_url, share_url, share_text, published_at, parse_published_at(published_at),
+                     text or None, source if text else None, ts if text else None, *transcript_meta(text),
+                     "transcript_saved" if text else "transcript_pending", ts, ts))
+                row = conn.execute("SELECT * FROM videos WHERE source_url = %s", (share_url,)).fetchone()
+                video_id = row["id"]  # A simultaneous import may have won the URL.
+                if text:
+                    conn.execute("""UPDATE videos SET transcript_text=%s, transcript_source=%s,
+                        transcript_created_at=%s, has_transcript=true, transcript_length=%s,
+                        status='transcript_saved', last_error=NULL, ad_review=NULL, updated_at=%s WHERE id=%s""",
+                        (text, source, ts, len(text), ts, video_id))
+                    row = conn.execute("SELECT * FROM videos WHERE id=%s", (video_id,)).fetchone()
+                    video = row_to_video(row)
+                    video["ad_review"] = review_video_advertising(conn, video_id)
+                    transcript_result = {"task_id": "provided_transcript", "transcript_text": text,
+                                         "raw_result": {"source": source}}
                 else:
                     try:
-                        transcript_result = fetch_transcript_from_transcriptgenerate(share_url)
+                        video, transcript_result = save_transcript_for_video(conn, row)
                     except RuntimeError as exc:
+                        invalidate_bootstrap_cache()
                         return self.send_error_json(502, truncate_error(str(exc)))
-                transcript_text = transcript_result["transcript_text"]
-                has_transcript, transcript_length = transcript_meta(transcript_text)
-                ts = now()
-                video_id = payload.get("id") or new_id("vid")
-                existing = conn.execute("SELECT * FROM videos WHERE source_url = %s", (share_url,)).fetchone()
-                platform = payload.get("platform") or (existing["platform"] if existing else None) or infer_platform(share_url)
-                title = payload.get("title") or (existing["title"] if existing else None) or infer_title(share_text, transcript_text)
-                creator = payload.get("creator") or (existing["creator"] if existing else None) or "待识别"
-                published_at = payload.get("published_at") or (existing["published_at"] if existing else None)
-                published_at_ts = parse_published_at(published_at)
-                conn.execute(
-                    """
-                    INSERT INTO videos (
-                      id, source_id, platform, creator, title, source_url, share_url, share_text, published_at, published_at_ts,
-                      transcript_text, transcript_source, transcript_created_at,
-                      has_transcript, transcript_length, status, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT(source_url) DO UPDATE SET
-                      title=excluded.title,
-                      platform=excluded.platform,
-                      creator=excluded.creator,
-                      share_url=excluded.share_url,
-                      share_text=excluded.share_text,
-                      published_at=COALESCE(excluded.published_at, videos.published_at),
-                      published_at_ts=COALESCE(excluded.published_at_ts, videos.published_at_ts),
-                      transcript_text=excluded.transcript_text,
-                      transcript_source=excluded.transcript_source,
-                      transcript_created_at=excluded.transcript_created_at,
-                      has_transcript=excluded.has_transcript,
-                      transcript_length=excluded.transcript_length,
-                      status=excluded.status,
-                      deleted_at=NULL,
-                      deleted_by=NULL,
-                      delete_reason=NULL,
-                      updated_at=excluded.updated_at
-                    """,
-                    (
-                        video_id,
-                        payload.get("source_id") or (existing["source_id"] if existing else None),
-                        platform,
-                        creator,
-                        title,
-                        share_url,
-                        share_url,
-                        share_text,
-                        published_at,
-                        published_at_ts,
-                        transcript_text,
-                        transcript_source if fallback_transcript else f"TranscriptGenerate/task:{transcript_result['task_id']}",
-                        ts,
-                        has_transcript,
-                        transcript_length,
-                        "transcript_saved",
-                        ts,
-                        ts,
-                    ),
-                )
-                row = conn.execute("SELECT * FROM videos WHERE source_url = %s AND deleted_at IS NULL", (share_url,)).fetchone()
-                video = row_to_video(row)
-                response = {
-                    "video": video,
-                    "transcript": {
-                        "task_id": transcript_result["task_id"],
-                        "transcript_text": transcript_text,
-                        "raw_result": transcript_result["raw_result"],
-                    },
-                }
+                response = {"video": video, "transcript": {
+                    "task_id": transcript_result["task_id"],
+                    "transcript_text": transcript_result["transcript_text"],
+                    "raw_result": transcript_result.get("raw_result", {}),
+                }}
                 if payload.get("extract"):
-                    response["extraction"] = extract_claims_for_video(conn, video)
-                    refreshed = conn.execute("SELECT * FROM videos WHERE id = %s", (video["id"],)).fetchone()
+                    response["extraction"] = extract_claims_for_video(conn, video, automatic=True)
+                    refreshed = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
                     response["video"] = row_to_video(refreshed)
+                invalidate_bootstrap_cache()
                 return self.send_json(response, status=201)
 
             if path.startswith("/api/videos/") and path.endswith("/transcript"):
                 video_id = path.split("/")[3]
-                require_fields(payload, ["transcript_text"])
-                row = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
-                if not row:
-                    return self.send_error_json(404, "video not found")
-                conn.execute(
+                transcript_text = payload.get("transcript_text")
+                if not isinstance(transcript_text, str) or not transcript_text.strip():
+                    return self.send_error_json(400, "transcript_text must be a non-empty string")
+                ts = now()
+                updated = conn.execute(
                     """
                     UPDATE videos
                     SET transcript_text = %s, transcript_source = %s, transcript_created_at = %s,
                         has_transcript = %s, transcript_length = %s,
-                        status = 'transcript_saved', updated_at = %s
-                    WHERE id = %s
+                        status = 'transcript_saved', last_error = NULL, ad_review = NULL, updated_at = %s
+                    WHERE id = %s AND deleted_at IS NULL
+                    RETURNING *
                     """,
                     (
-                        payload["transcript_text"],
+                        transcript_text,
                         payload.get("transcript_source", "manual"),
-                        now(),
-                        *transcript_meta(payload["transcript_text"]),
-                        now(),
+                        ts,
+                        *transcript_meta(transcript_text),
+                        ts,
                         video_id,
                     ),
-                )
-                updated = conn.execute("SELECT * FROM videos WHERE id = %s", (video_id,)).fetchone()
-                return self.send_json({"video": row_to_video(updated)})
+                ).fetchone()
+                if not updated:
+                    return self.send_error_json(404, "video not found")
+                invalidate_bootstrap_cache()
+                video = row_to_video(updated)
+                video["ad_review"] = review_video_advertising(conn, video_id)
+                return self.send_json({"video": video})
 
             if path.startswith("/api/videos/") and path.endswith("/restore"):
                 if not require_admin(self):
@@ -3428,7 +3989,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 conn.execute("UPDATE videos SET updated_at = %s WHERE id = %s", (now(), row["video_id"]))
                 restored = conn.execute("SELECT * FROM claims WHERE id = %s", (claim_id,)).fetchone()
                 invalidate_bootstrap_cache()
-                return self.send_json({"status": "restored", "claim": row_to_claim(restored)})
+                return self.send_json({"status": "restored", "claim": claims_with_source_labels(conn, [restored])[0]})
 
             if path.startswith("/api/videos/") and path.endswith("/retry-full/start"):
                 video_id = path.split("/")[3]
@@ -3452,6 +4013,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     FROM videos v
                     LEFT JOIN claims c ON c.video_id = v.id AND c.deleted_at IS NULL
                     WHERE v.status = 'transcript_saved' AND v.deleted_at IS NULL
+                      AND (NOT COALESCE(v.has_transcript, false) OR COALESCE(v.ad_review_override->>'decision', v.ad_review->>'decision', '') NOT IN ('advertising', 'uncertain', 'error'))
                     GROUP BY v.id
                     HAVING COUNT(c.id) = 0
                     ORDER BY v.published_at_ts DESC NULLS LAST, v.created_at DESC
@@ -3461,7 +4023,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 if not row:
                     return self.send_json({"status": "empty", "message": "no transcript_saved videos waiting for extraction"})
                 video = row_to_video(row)
-                result = extract_claims_for_video(conn, video)
+                result = extract_claims_for_video(conn, video, automatic=True)
                 refreshed = conn.execute("SELECT * FROM videos WHERE id = %s AND deleted_at IS NULL", (video["id"],)).fetchone()
                 result["video"] = row_to_video(refreshed)
                 return self.send_json(result, status=202 if result["status"] != "completed" else 200)
@@ -3513,57 +4075,113 @@ class AppHandler(SimpleHTTPRequestHandler):
                     collected,
                 )
                 result["status"] = "completed"
-                result["message"] = (
-                    f"采集完成：保存 {result['stats']['saved']} 条，新增 {result['stats']['created']} 条，重复 {result['stats']['duplicate']} 条。"
-                )
+                result["message"] = collection_update_message(result)
                 return self.send_json(result, status=201)
 
             if path == "/api/sources/update-all":
-                rows = conn.execute("SELECT id FROM sources WHERE status = 'active' ORDER BY priority, created_at DESC").fetchall()
+                try:
+                    limit = int(payload.get("limit", 5))
+                except (TypeError, ValueError):
+                    return self.send_error_json(400, "limit must be a positive integer")
+                if limit < 1:
+                    return self.send_error_json(400, "limit must be positive")
+                rows = conn.execute(
+                    "SELECT * FROM sources WHERE status = 'active' ORDER BY priority, created_at DESC, id"
+                ).fetchall()
+                results = []
+                stats = {"received": 0, "saved": 0, "created": 0, "duplicate": 0, "skipped_deleted": 0}
+                summary = {"total": len(rows), "completed": 0, "failed": 0, "skipped": 0}
+                for row in rows:
+                    result = {
+                        "source_id": row["id"],
+                        "name": row["name"],
+                        "platform": row["platform"],
+                        "stats": {"received": 0, "saved": 0, "created": 0, "duplicate": 0, "skipped_deleted": 0},
+                    }
+                    platform = row["platform"] or ""
+                    if "douyin" not in platform.lower() and "抖音" not in platform:
+                        result.update({"status": "skipped", "message": f"暂不支持 {platform} 平台采集，目前仅支持抖音。"})
+                    else:
+                        try:
+                            if not (row["profile_url"] or "").strip():
+                                raise ValueError("来源缺少主页链接")
+                            collected = collect_douyin_profile(row["profile_url"], limit, creator=row["name"])
+                            if not isinstance(collected, list) or not collected:
+                                raise RuntimeError("douyin_collector_empty")
+                            result["stats"]["received"] = len(collected[:limit])
+                            with conn.transaction():
+                                saved = save_collected_videos(
+                                    conn,
+                                    {
+                                        "source_id": row["id"],
+                                        "platform": row["platform"],
+                                        "creator": row["name"],
+                                        "profile_url": row["profile_url"],
+                                        "priority": row["priority"],
+                                        "limit": limit,
+                                        "notes": row["notes"] or "",
+                                    },
+                                    collected,
+                                )
+                                if not saved["stats"]["saved"] and not saved["stats"].get("skipped_deleted"):
+                                    raise RuntimeError("collector_no_valid_videos")
+                            result.update(saved)
+                            result.update({"status": "completed", "message": collection_update_message(saved)})
+                            invalidate_bootstrap_cache()
+                        except Exception as exc:
+                            error = truncate_error(str(exc))
+                            result.update({"status": "failed", "error": error, "message": f"更新失败：{error}"})
+                    results.append(result)
+                    summary[result["status"]] += 1
+                    for key in stats:
+                        stats[key] += result["stats"].get(key, 0)
+
+                if summary["completed"]:
+                    status = "completed" if summary["completed"] == summary["total"] else "partial"
+                elif summary["failed"]:
+                    status = "failed"
+                else:
+                    status = "skipped"
+                label = {"completed": "更新完成", "partial": "部分更新完成", "failed": "更新失败", "skipped": "未执行更新"}[status]
+                message = (
+                    f"{label}：成功 {summary['completed']} 个来源，失败 {summary['failed']} 个，跳过 {summary['skipped']} 个；"
+                    f"新增 {stats['created']} 条，重复 {stats['duplicate']} 条。"
+                ) if rows else "没有启用的来源，未执行更新。"
+                if stats["skipped_deleted"]:
+                    message += f"跳过已删除视频 {stats['skipped_deleted']} 条（此前已删除，不自动恢复）。"
+                    for source in results:
+                        for detail in collection_skip_messages(source):
+                            message += f"\n{source['name']}：{detail}"
                 return self.send_json(
-                    {
-                        "status": "collector_not_ready",
-                        "limit": int(payload.get("limit") or 5),
-                        "sources": [row["id"] for row in rows],
-                        "message": "本地浏览器采集器尚未接入；下一步会串行更新所有博主。",
-                    },
-                    status=202,
+                    {"status": status, "limit": limit, "sources": results, "stats": stats, "summary": summary, "message": message}
                 )
 
         return self.send_error_json(404, "not found")
 
     def handle_delete(self, parsed):
         path = parsed.path
+        if PUBLIC_READ_ONLY:
+            return self.send_error_json(403, "public instance is read-only")
         if not DB_STATUS["available"]:
             return self.send_error_json(503, f"database unavailable: {truncate_error(DB_STATUS['message'])}")
         if not require_admin(self):
             return
         deleted_at = now()
-        delete_reason = (parse_qs(parsed.query).get("reason") or [""])[0].strip()
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        delete_reason = (query.get("reason") or [""])[0].strip()
+        delete_claims = True
+        if path.startswith("/api/videos/"):
+            values = query.get("delete_claims", ["true"])
+            if len(values) != 1 or values[0] not in ("true", "false"):
+                return self.send_error_json(400, "delete_claims must be true or false")
+            delete_claims = values[0] == "true"
         with connect() as conn:
             if path.startswith("/api/videos/"):
                 video_id = path.split("/")[3]
-                row = conn.execute("SELECT id FROM videos WHERE id = %s AND deleted_at IS NULL", (video_id,)).fetchone()
-                if not row:
+                if not delete_video_and_claims(conn, video_id, deleted_at, delete_reason, delete_claims=delete_claims):
                     return self.send_error_json(404, "video not found")
-                conn.execute(
-                    """
-                    UPDATE claims
-                    SET deleted_at = %s, deleted_by = %s, delete_reason = %s
-                    WHERE video_id = %s AND deleted_at IS NULL
-                    """,
-                    (deleted_at, "admin", delete_reason, video_id),
-                )
-                conn.execute(
-                    """
-                    UPDATE videos
-                    SET deleted_at = %s, deleted_by = %s, delete_reason = %s, updated_at = %s
-                    WHERE id = %s AND deleted_at IS NULL
-                    """,
-                    (deleted_at, "admin", delete_reason, deleted_at, video_id),
-                )
                 invalidate_bootstrap_cache()
-                return self.send_json({"status": "deleted", "video_id": video_id})
+                return self.send_json({"status": "deleted", "video_id": video_id, "claims_deleted": delete_claims})
 
             if path.startswith("/api/claims/"):
                 claim_id = path.split("/")[3]
@@ -3591,8 +4209,9 @@ def main():
     else:
         print(f"PostgreSQL connection failed: {DB_STATUS['message']}", file=sys.stderr)
     port = int(sys.argv[1]) if len(sys.argv) >= 2 else int(os.environ.get("PORT", "4180"))
-    server = ThreadingHTTPServer(("127.0.0.1", port), AppHandler)
-    print(f"Serving API on http://127.0.0.1:{port}")
+    host = os.environ.get("HOST", "127.0.0.1")
+    server = ThreadingHTTPServer((host, port), AppHandler)
+    print(f"Serving API on http://{host}:{port}")
     if STATIC_ROOT:
         print(f"Serving static files from {STATIC_ROOT}")
     server.serve_forever()

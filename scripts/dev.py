@@ -103,7 +103,8 @@ def python_ready():
 
 def app_env(config):
     env = os.environ.copy()
-    env.update({key: str(value) for key, value in config.items() if value is not None})
+    env.update({key: json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                for key, value in config.items() if value is not None})
     env['STATIC_ROOT'] = str(ROOT / 'web')
     env['PYTHONUNBUFFERED'] = '1'
     return env
@@ -135,6 +136,7 @@ def start():
     config = configure()
     database_up()
     python_ready()
+    run([PYTHON, ROOT / 'scripts' / 'migrate_transcript_jobs.py'], env=app_env(config))
     run([PYTHON, ROOT / 'scripts' / 'init_db.py'], env=app_env(config))
     state = read_state()
     if process_running(state):

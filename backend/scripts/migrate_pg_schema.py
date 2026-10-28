@@ -145,6 +145,9 @@ def main():
             migrate_jsonb_column(cur, "extraction_runs", "raw_response_json", "'{}'")
             add_published_at_ts(cur)
             add_transcript_meta(cur)
+            execute(cur, "ALTER TABLE videos ADD COLUMN IF NOT EXISTS transcript_job jsonb")
+            execute(cur, "ALTER TABLE videos ADD COLUMN IF NOT EXISTS ad_review jsonb")
+            execute(cur, "ALTER TABLE videos ADD COLUMN IF NOT EXISTS ad_review_override jsonb")
             add_soft_delete_columns(cur)
 
             execute(cur, "CREATE EXTENSION IF NOT EXISTS pg_trgm")

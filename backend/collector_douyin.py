@@ -67,14 +67,22 @@ def looks_like_aweme(value):
     return any(key in value for key in ("desc", "create_time", "author", "video", "statistics", "share_info"))
 
 
-def recursive_find_video_objects(value):
+def is_pinned_video(value):
+    return isinstance(value, dict) and any(
+        str(value.get(key, "")).strip().lower() in {"1", "true", "yes"}
+        for key in ("is_top", "isTop", "is_pinned", "isPinned")
+    )
+
+
+def recursive_find_video_objects(value, inherited_pinned=False):
     found = []
     if isinstance(value, list):
         for item in value:
-            found.extend(recursive_find_video_objects(item))
+            found.extend(recursive_find_video_objects(item, inherited_pinned))
         return found
     if not isinstance(value, dict):
         return found
+    pinned = inherited_pinned or is_pinned_video(value)
 
     video_id = (
         value.get("aweme_id")
@@ -101,32 +109,37 @@ def recursive_find_video_objects(value):
                 "share_url": source_url,
                 "title": safe_text(title),
                 "published_at": published_at,
+                "is_pinned": pinned,
             }
         )
 
     for nested in value.values():
         if isinstance(nested, (dict, list)):
-            found.extend(recursive_find_video_objects(nested))
+            found.extend(recursive_find_video_objects(nested, pinned))
     return found
 
 
-def append_unique_videos(target, items, seen, limit):
+def append_unique_videos(target, items, seen, limit, excluded=None):
+    excluded = excluded if excluded is not None else set()
+    # Pin evidence wins over an unmarked copy from another response or render data.
+    excluded.update(item.get("source_url") for item in items if is_pinned_video(item))
+    target[:] = [item for item in target if item.get("source_url") not in excluded]
     for item in items:
         source_url = item.get("source_url")
-        if not source_url or source_url in seen:
+        if not source_url or source_url in seen or source_url in excluded:
             continue
+        if len(target) >= limit:
+            break
         seen.add(source_url)
         target.append(item)
-        if len(target) >= limit:
-            return True
-    return False
+    return len(target) >= limit
 
 
 def sort_latest_videos(videos):
     return sorted(videos, key=lambda item: item.get("published_at") or "", reverse=True)
 
 
-def collect_render_data_videos(page, limit):
+def collect_render_data_videos(page, limit, excluded=None):
     payloads = page.eval_on_selector_all(
         "script",
         """els => els.map((el) => ({
@@ -136,6 +149,7 @@ def collect_render_data_videos(page, limit):
     )
     videos = []
     seen = set()
+    excluded = excluded if excluded is not None else set()
     for payload in payloads:
         text = payload.get("text") or ""
         candidates = [text]
@@ -146,8 +160,7 @@ def collect_render_data_videos(page, limit):
                 data = json.loads(candidate)
             except Exception:
                 continue
-            if append_unique_videos(videos, recursive_find_video_objects(data), seen, limit):
-                return videos
+            append_unique_videos(videos, recursive_find_video_objects(data), seen, limit, excluded)
     return videos
 
 
@@ -219,6 +232,7 @@ def main():
         profile_sec_uid = expected_sec_user_id(args.profile_url)
         response_videos = []
         response_seen = set()
+        pinned_urls = set()
         response_urls = []
 
         def handle_response(response):
@@ -239,7 +253,7 @@ def main():
             if not items:
                 return
             response_urls.append(url)
-            append_unique_videos(response_videos, items, response_seen, candidate_limit)
+            append_unique_videos(response_videos, items, response_seen, candidate_limit, pinned_urls)
 
         page = context.new_page()
         page.on("response", handle_response)
@@ -278,8 +292,8 @@ def main():
         videos = response_videos[:]
         if len(videos) < candidate_limit:
             seen = {item["source_url"] for item in videos}
-            render_videos = collect_render_data_videos(page, candidate_limit)
-            append_unique_videos(videos, render_videos, seen, candidate_limit)
+            render_videos = collect_render_data_videos(page, candidate_limit, pinned_urls)
+            append_unique_videos(videos, render_videos, seen, candidate_limit, pinned_urls)
         login_text = page.locator("text=登录").count()
         body_text = safe_text(page.locator("body").inner_text(timeout=5000))
         status = cookie_status(context)
@@ -301,6 +315,14 @@ def main():
         return 1
 
     if not videos:
+        if pinned_urls:
+            print(json.dumps({
+                "ok": False,
+                "error": "douyin_no_unpinned_videos",
+                "message": f"已跳过 {len(pinned_urls)} 条置顶视频，暂未找到可采集的非置顶作品。",
+                "skipped_pinned": len(pinned_urls),
+            }, ensure_ascii=False))
+            return 1
         print(
             json.dumps(
                 {
@@ -319,7 +341,8 @@ def main():
         )
         return 1
 
-    print(json.dumps({"ok": True, "videos": sort_latest_videos(videos)[: args.limit]}, ensure_ascii=False))
+    print(json.dumps({"ok": True, "videos": sort_latest_videos(videos)[: args.limit],
+                      "skipped_pinned": len(pinned_urls)}, ensure_ascii=False))
     return 0
 
 

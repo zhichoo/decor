@@ -1,0 +1,13 @@
+{
+  "name": "decor-public",
+  "compatibility_date": "2026-10-28",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./.runtime/public-site",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "decor.zhichoo.com", "custom_domain": true }
+  ]
+}

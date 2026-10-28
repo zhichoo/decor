@@ -1,2 +1,5 @@
 playwright==1.60.0
 psycopg2-binary==2.9.12
+sherpa-onnx==1.12.40
+numpy>=1.26,<3
+imageio-ffmpeg==0.6.0

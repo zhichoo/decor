@@ -1,0 +1,19 @@
+.public-snapshot-note {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.public-snapshot-note strong {
+  color: var(--ink, #26372f);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .public-snapshot-note {
+    justify-items: start;
+  }
+}

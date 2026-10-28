@@ -2,8 +2,10 @@
 .env
 .env.*
 !.env.example
+!.env.docker.example
 .venv/
 .runtime/
+.wrangler/
 __pycache__/
 *.py[cod]
 config.local.json
@@ -16,3 +18,4 @@ backups/
 .playwright*/
 .douyin*/
 .pytest_cache/
+backend/.browser-profile/

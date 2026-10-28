@@ -27,6 +27,7 @@ function normalizeApiOrigin(value) {
 }
 
 function resolveApiBase() {
+  if (window.DECOR_PUBLIC_LIBRARY) return `${window.location.origin}/api`;
   const params = new URLSearchParams(window.location.search);
   const explicitApiOrigin = normalizeApiOrigin(params.get("api") || window.ZHUANGXIU_API_ORIGIN);
   if (explicitApiOrigin) {
@@ -45,7 +46,7 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
-const API_CACHE_KEY = "zhuangxiuApiSnapshot:v4";
+const API_CACHE_KEY = `zhuangxiuApiSnapshot:v6${window.DECOR_PUBLIC_LIBRARY ? `:${window.DECOR_PUBLIC_LIBRARY.snapshot}` : ""}`;
 const API_CACHE_MAX_AGE = 10 * 60 * 1000;
 
 const fallbackVideos = [];
@@ -57,20 +58,8 @@ const knowledgeCategoryGroups = [
     items: [{ type: "all", value: "全部", label: "全部观点", meta: "所有知识卡" }],
   },
   {
-    title: "按流程大类",
-    items: [
-      { type: "stageGroup", value: "前期规划", label: "前期规划", meta: "准备 / 验房 / 设计", stages: ["准备阶段", "收房验房", "设计规划"] },
-      { type: "stageGroup", value: "基础施工", label: "基础施工", meta: "拆改 / 水电 / 防水", stages: ["拆改阶段", "水电阶段", "防水阶段"] },
-      { type: "stageGroup", value: "泥木油工", label: "泥木油工", meta: "瓦工 / 木工 / 墙面", stages: ["瓦工阶段", "木工阶段", "油工阶段"] },
-      {
-        type: "stageGroup",
-        value: "安装收口",
-        label: "安装收口",
-        meta: "主材 / 定制 / 厨卫 / 五金",
-        stages: ["主材安装", "定制柜安装", "厨卫安装", "灯具开关五金"],
-      },
-      { type: "stageGroup", value: "软装入住", label: "软装入住", meta: "家具 / 家电 / 验收", stages: ["家电家具软装", "开荒保洁", "通风除醛", "入住验收"] },
-    ],
+    title: "按装修阶段",
+    items: stages.map((stage) => ({ type: "stage", value: stage.name, label: stage.name, meta: "装修阶段" })),
   },
   {
     title: "按空间",
@@ -93,8 +82,14 @@ const viewTitles = {
   progress: "处理进度",
   knowledge: "知识库",
   deleted: "已删除",
+  settings: "设置",
 };
 const viewNames = new Set(Object.keys(viewTitles));
+
+let transcriptSettings = { provider: null, loading: false, busy: false, health: null, message: "", error: "" };
+let transcriptSettingsRequest = 0;
+
+
 
 function getInitialView() {
   const hashView = window.location.hash.replace(/^#/, "");
@@ -108,13 +103,17 @@ let knowledgeClaims = [];
 let deletedItems = { videos: [], claims: [], videoTotal: 0, claimTotal: 0, loading: false, error: "" };
 let activeView = getInitialView();
 let selectedVideoId = videos[0]?.id || null;
+const transcriptEdits = new Map();
+const videoExtractions = new Map();
+const videoTranscriptions = new Map();
 let activeSourceFilter = null;
 let activeVideoPlatform = "全部";
 let activeVideoCreator = "全部";
 let activeKnowledgeCategory = { type: "all", value: "全部" };
 let activeKnowledgeGroupTitle = "范围";
 let activeProgressFilter = "全部";
-let ingestSubmitMode = "save";
+let ingestSubmitMode = "batch";
+let ingestSubmitting = false;
 let queueStatusTimer = null;
 let activeProgressLogVideoId = null;
 let lastQueueStatus = null;
@@ -122,10 +121,20 @@ let queueLogMode = "global";
 let apiLoadState = { status: "loading", error: "", attempts: 0 };
 let apiHealthState = { ok: true, dbAvailable: true, dbMessage: "" };
 let apiStats = { sourceCount: null, videoCount: null, transcriptCount: null, claimCount: null };
+let videoFacets = null;
+let knowledgeFacets = null;
 let adminSession = { authenticated: false, configured: false };
+let adminSessionLoaded = false;
 let progressSummary = null;
 let apiLoadRequestId = 0;
-let douyinLoginStatus = { status: "idle", message: "未检查", running: false, logged_in: false };
+let videoLoadRequestId = 0;
+let videoListRepairPending = false;
+let videoListRepairAttemptId = -1;
+let knowledgeLoadRequestId = 0;
+let douyinLoginStatus = { status: "idle", message: "未检查", running: false, logged_in: null };
+let douyinLoginChecking = false;
+let douyinLoginRequest = null;
+let douyinLoginRequestId = 0;
 let douyinLoginTimer = null;
 let knowledgeSearchTimer = null;
 let autoLoadObserver = null;
@@ -143,9 +152,6 @@ const progressMessage = document.querySelector("#progress-message");
 const queueLogPanel = document.querySelector("#queue-log-panel");
 const queueLogBody = document.querySelector("#queue-log-body");
 const queueLogMeta = document.querySelector("#queue-log-meta");
-const knowledgeLayout = document.querySelector("#knowledge-layout");
-const knowledgeFilterToggle = document.querySelector("#knowledge-filter-toggle");
-const knowledgeFilterCurrent = document.querySelector("#knowledge-filter-current");
 const progressProcessPendingButton = document.querySelector("#progress-process-pending");
 const adminPanel = document.querySelector("#admin-panel");
 const adminStatus = document.querySelector("#admin-status");
@@ -195,8 +201,9 @@ function getAllClaims() {
 }
 
 function normalizeCount(value) {
+  if (value == null || typeof value === "boolean" || String(value).trim() === "") return null;
   const count = Number(value);
-  return Number.isFinite(count) ? count : null;
+  return Number.isFinite(count) && count >= 0 ? count : null;
 }
 
 function normalizeApiStats(stats = {}) {
@@ -214,7 +221,7 @@ function firstKnownCount(...values) {
 
 function getClaimTotal() {
   const claims = getAllClaims();
-  return firstKnownCount(apiStats.claimCount, claims.length || null, videos.reduce((sum, video) => sum + (video.claimCount || 0), 0));
+  return firstKnownCount(knowledgeFacets?.total, apiStats.claimCount, claims.length || null, videos.reduce((sum, video) => sum + (video.claimCount || 0), 0));
 }
 
 function getPipeline() {
@@ -259,6 +266,7 @@ function normalizeApiClaim(claim) {
   return {
     id: claim.id,
     videoId: claim.video_id,
+    sourceVideoIsPromotional: Boolean(claim.source_video_is_promotional),
     object: claim.object_name,
     stance: claim.stance,
     stage: claim.process_stage,
@@ -285,17 +293,20 @@ function normalizeApiVideo(video) {
     shareUrl: video.share_url,
     shareText: video.share_text,
     status: video.status,
+    adReview: video.ad_review || null,
     publishTime: video.published_at || "未提及",
     createdAt: video.created_at || null,
     updatedAt: video.updated_at || null,
     transcriptCreatedAt: video.transcript_created_at || null,
+    transcriptJob: video.transcript_job || null,
     lastRetryAt: video.last_retry_at || null,
     claimCount: video.claim_count || 0,
     retryCount: video.retry_count || 0,
     lastError: video.last_error || "",
     hasTranscript: Boolean(video.has_transcript || transcriptLength > 0),
     transcriptLength,
-    transcript: transcriptText || "未保存原始文案",
+    transcript: transcriptText,
+    detailLoaded: Object.hasOwn(video, "transcript_text"),
     claims: Array.isArray(video.claims) ? video.claims.map(normalizeApiClaim) : [],
   };
 }
@@ -326,9 +337,21 @@ function getVideoStatusLabel(status) {
   return VIDEO_STATUS_LABELS[status] || "未知状态";
 }
 
+function renderAdBadge(video) {
+  const decision = video.adReview?.decision;
+  if (!decision || decision === "not_ad") return "";
+  const label = decision === "advertising" ? "推广" : "疑似推广";
+  return `<span class="status" title="${escapeAttr(getVideoReasonLabel(video))}">${label}</span>`;
+}
+
 function getVideoReasonLabel(video) {
+  if (video?.adReview?.decision === "advertising") return `推广：${String(video.adReview.reason || "").replaceAll("广告", "推广")}；已跳过自动观点提取，可人工提取。`;
+  if (["uncertain", "error"].includes(video?.adReview?.decision)) return `疑似推广：${String(video.adReview.reason || "").replaceAll("广告", "推广")}；暂不自动提取观点。`;
   const reason = String(video?.lastError || "").trim();
   if (!reason) return "";
+  if (reason.startsWith("deepseek_timeout:") || reason.includes("Operation timed out")) {
+    return "模型响应超时，文案和已有知识卡已保留，可稍后重试提取观点。";
+  }
   if (video.status === "claims_filtered") return `无可用观点：${reason.replace(/^无有效内容[:：]\s*/, "")}`;
   if (video.status === "transcript_failed") return `文案失败：${reason}`;
   return `处理原因：${reason}`;
@@ -377,9 +400,13 @@ function writeApiCache() {
         apiBase: API_BASE,
         timestamp: Date.now(),
         sources,
-        videos,
+        videos: activeSourceFilter || activeVideoPlatform !== "全部" || activeVideoCreator !== "全部" ? [] : videos,
+        videoPageState,
+        selectedVideoId,
         knowledgeClaims,
         apiStats,
+        videoFacets,
+        knowledgeFacets,
         progressSummary,
       }),
     );
@@ -391,13 +418,19 @@ function writeApiCache() {
 function applyApiSnapshot(snapshot) {
   sources = snapshot.sources;
   videos = sortVideosByPublishTime(snapshot.videos);
+  if (videos.length && snapshot.videoPageState) {
+    videoPageState = { ...snapshot.videoPageState, loading: false, error: "" };
+  }
   knowledgeClaims = snapshot.knowledgeClaims;
   apiStats = snapshot.apiStats || apiStats;
+  videoFacets = snapshot.videoFacets || null;
+  knowledgeFacets = snapshot.knowledgeFacets || null;
   progressSummary = snapshot.progressSummary || progressSummary;
+  if (activeView === "detail" && snapshot.selectedVideoId) selectedVideoId = snapshot.selectedVideoId;
   if (activeSourceFilter && !sources.some((source) => source.id === activeSourceFilter.id)) {
     activeSourceFilter = null;
   }
-  if (!selectedVideoId || !videos.some((video) => video.id === selectedVideoId)) {
+  if (!selectedVideoId || (activeView !== "detail" && !videos.some((video) => video.id === selectedVideoId))) {
     selectedVideoId = videos[0]?.id || null;
   }
 }
@@ -413,19 +446,54 @@ function applyApiHealth(payload = {}) {
   }
 }
 
+function adminActionAttributes(blocked = false) {
+  return `data-admin-required data-admin-blocked="${blocked}" ${!adminSession.authenticated || blocked ? "disabled" : ""} ${!adminSession.authenticated ? 'title="请先登录管理员"' : ""}`;
+}
+
+function syncAdminActionButtons() {
+  document.documentElement.dataset.adminAuthenticated = String(adminSession.authenticated);
+  document.querySelectorAll("[data-admin-required]").forEach((button) => {
+    button.disabled = !adminSession.authenticated || button.dataset.adminBusy === "true" || button.dataset.adminBlocked === "true";
+    if (!adminSession.authenticated) {
+      button.title = "请先登录管理员";
+    } else {
+      button.removeAttribute("title");
+    }
+  });
+}
+
+function setAdminActionBusy(button, busy) {
+  button.dataset.adminBusy = String(busy);
+  syncAdminActionButtons();
+}
+
+function requireAdminAction() {
+  if (window.DECOR_PUBLIC_LIBRARY) throw new Error("公开预览仅支持浏览，不支持修改或删除。");
+  if (!adminSession.authenticated) throw new Error("请先登录管理员后再操作。");
+}
+
 function renderAdminSession() {
+  syncAdminActionButtons();
+  if (openIngestButton) openIngestButton.hidden = activeView !== "sources" || !adminSession.authenticated;
+  if (!adminSession.authenticated) {
+    if (ingestPanel) ingestPanel.hidden = true;
+    openIngestButton?.setAttribute("aria-expanded", "false");
+    if (["deleted", "settings"].includes(activeView)) setView(activeView);
+  }
   if (!adminPanel || !adminStatus || !adminLoginButton || !adminLogoutButton) return;
+  adminPanel.hidden = !adminSessionLoaded || Boolean(adminSession.read_only) || Boolean(adminSession.error);
+  if (adminSession.read_only) closeAdminLoginModal();
   adminPanel.dataset.authenticated = adminSession.authenticated ? "true" : "false";
   if (!adminSession.configured) {
     adminStatus.textContent = "管理员未配置";
     adminLoginButton.hidden = false;
     adminLogoutButton.hidden = true;
-    return;
+  } else {
+    adminStatus.textContent = adminSession.authenticated ? "管理员已登录" : "管理员未登录";
+    adminLoginButton.hidden = adminSession.authenticated;
+    adminLogoutButton.hidden = !adminSession.authenticated;
   }
-  adminStatus.textContent = adminSession.authenticated ? "管理员已登录" : "管理员未登录";
-  adminLoginButton.hidden = adminSession.authenticated;
-  adminLogoutButton.hidden = !adminSession.authenticated;
-  renderIfActive("videos", "progress", "detail", "knowledge", "deleted");
+  renderIfActive("sources", "videos", "progress", "detail", "knowledge", "deleted", "settings");
 }
 
 async function loadAdminSession() {
@@ -434,7 +502,9 @@ async function loadAdminSession() {
   } catch (error) {
     adminSession = { authenticated: false, configured: false, error: error.message };
   }
+  adminSessionLoaded = true;
   renderAdminSession();
+  if (["#deleted", "#settings"].includes(window.location.hash)) syncViewFromHash();
   return adminSession;
 }
 
@@ -504,6 +574,7 @@ function closeAdminLoginModal() {
 }
 
 function openAdminLoginModal(trigger = document.activeElement) {
+  if (!adminSessionLoaded || adminSession.read_only) return;
   if (!adminLoginModal || !adminLoginPassword) return;
   adminLoginReturnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
   adminLoginModal.hidden = false;
@@ -514,6 +585,7 @@ function openAdminLoginModal(trigger = document.activeElement) {
 }
 
 async function submitAdminLogin(password) {
+  if (!adminSessionLoaded || adminSession.read_only) return false;
   const cleanedPassword = String(password || "");
   if (!cleanedPassword) {
     setAdminLoginMessage("请输入管理员密码。", "error");
@@ -574,6 +646,10 @@ async function restoreClaim(claimId) {
 }
 
 function updateVideoPageState(payload = {}, append = false) {
+  if (Array.isArray(payload.facets?.platforms) && Array.isArray(payload.facets?.creators)) {
+    videoFacets = payload.facets;
+    apiStats.videoCount = normalizeCount(payload.facets.total) ?? apiStats.videoCount;
+  }
   const received = Array.isArray(payload.videos) ? payload.videos.length : 0;
   videoPageState = {
     total: normalizeCount(payload.total) ?? (append ? Math.max(videoPageState.total, videos.length) : received),
@@ -598,6 +674,9 @@ function updateProgressPageState(payload = {}, append = false) {
 }
 
 function updateKnowledgePageState(payload = {}, append = false) {
+  if (payload.facets?.stages && payload.facets?.tags && payload.facets?.stances) {
+    knowledgeFacets = payload.facets;
+  }
   const received = Array.isArray(payload.claims) ? payload.claims.length : 0;
   knowledgePageState = {
     total: normalizeCount(payload.total) ?? (append ? Math.max(knowledgePageState.total, knowledgeClaims.length) : received),
@@ -627,20 +706,25 @@ function applyApiCollections({ nextSources, nextVideos, nextKnowledgeClaims }) {
   if (activeSourceFilter && !sources.some((source) => source.id === activeSourceFilter.id)) {
     activeSourceFilter = null;
   }
-  if (!selectedVideoId || !videos.some((video) => video.id === selectedVideoId)) {
+  if (!selectedVideoId || (activeView !== "detail" && !videos.some((video) => video.id === selectedVideoId))) {
     selectedVideoId = videos[0]?.id || null;
   }
 }
 
-function applyBootstrapPayload(payload) {
+function applyBootstrapPayload(payload, { preserveVideoList = false } = {}) {
   applyApiHealth(payload.health || {});
   const knowledgePayload = payload.knowledge || {};
+  if (knowledgePayload.facets) knowledgeFacets = knowledgePayload.facets;
   apiStats = normalizeApiStats(payload.stats || {});
   const collections = {
     nextSources: payload.sources || [],
-    nextVideos: (payload.videos || []).map(normalizeApiVideo),
   };
-  updateVideoPageState({ ...(payload.videos_page || {}), videos: payload.videos || [] });
+  if (!preserveVideoList) {
+    collections.nextVideos = (payload.videos || []).map(normalizeApiVideo);
+    updateVideoPageState({ ...(payload.videos_page || {}), videos: payload.videos || [], facets: payload.video_facets });
+  } else {
+    videoFacets = payload.video_facets || videoFacets;
+  }
   if (!knowledgePayload.deferred) {
     collections.nextKnowledgeClaims = (knowledgePayload.claims || []).map(normalizeKnowledgeClaim);
     updateKnowledgePageState(knowledgePayload);
@@ -666,8 +750,10 @@ function getKnowledgeApiParams(offset = 0) {
     offset,
     q: query,
   };
-  if (activeKnowledgeCategory.type === "tag" || activeKnowledgeCategory.type === "stance") {
+  if (activeKnowledgeCategory.type === "tag") {
     params.tag = activeKnowledgeCategory.value;
+  } else if (activeKnowledgeCategory.type === "stance") {
+    params.stance = activeKnowledgeCategory.value;
   } else if (activeKnowledgeCategory.type === "stage") {
     params.stage = activeKnowledgeCategory.value;
   } else if (activeKnowledgeCategory.type === "stageGroup" && activeKnowledgeCategory.stages?.length) {
@@ -695,17 +781,20 @@ function getProgressApiParams(offset = 0) {
 }
 
 function loadKnowledgePage({ append = false } = {}) {
+  const requestId = ++knowledgeLoadRequestId;
   const offset = append ? knowledgePageState.offset : 0;
+  if (!append) knowledgeClaims = [];
   knowledgePageState = { ...knowledgePageState, loading: true, error: "" };
   renderKnowledge();
   return fetchApiJson(`/knowledge${buildQueryString(getKnowledgeApiParams(offset))}`)
     .then((payload) => {
+      if (requestId !== knowledgeLoadRequestId) return;
       const nextClaims = (payload.claims || []).map(normalizeKnowledgeClaim);
       knowledgeClaims = append ? appendUniqueById(knowledgeClaims, nextClaims) : nextClaims;
       updateKnowledgePageState(payload, append);
       apiStats = {
         ...apiStats,
-        claimCount: normalizeCount(payload.total) ?? apiStats.claimCount,
+        claimCount: normalizeCount(payload.facets?.total) ?? apiStats.claimCount,
       };
       renderOverview();
       renderDetail();
@@ -714,28 +803,48 @@ function loadKnowledgePage({ append = false } = {}) {
       writeApiCache();
     })
     .catch((error) => {
+      if (requestId !== knowledgeLoadRequestId) return;
       knowledgePageState = { ...knowledgePageState, loading: false, error: error.message };
       renderKnowledge();
       console.info("Knowledge page load failed:", error.message);
     });
 }
 
-function loadVideoPage({ append = false } = {}) {
+function loadVideoPage({ append = false, preserveLoaded = false } = {}) {
+  if (append && videoPageState.loading) return Promise.resolve();
+  const requestId = ++videoLoadRequestId;
   const offset = append ? videoPageState.offset : 0;
+  const params = getVideoApiParams(offset);
+  const retainedCount = preserveLoaded ? Math.max(VIDEO_PAGE_SIZE, videoPageState.offset, videos.length) : VIDEO_PAGE_SIZE;
+  if (!append && !preserveLoaded) videos = [];
   videoPageState = { ...videoPageState, loading: true, error: "" };
   renderVideos();
-  return fetchApiJson(`/videos${buildQueryString(getVideoApiParams(offset))}`)
+  const fetchPage = async () => {
+    if (!preserveLoaded) return fetchApiJson(`/videos${buildQueryString(params)}`);
+    // Refill the already loaded range without collapsing a scrolled list to page one.
+    let collected = [];
+    let payload;
+    do {
+      payload = await fetchApiJson(`/videos${buildQueryString({ ...params, offset: collected.length, limit: Math.min(100, retainedCount - collected.length) })}`);
+      if (requestId !== videoLoadRequestId) return payload;
+      collected.push(...(payload.videos || []));
+    } while (payload.has_more && payload.videos?.length && collected.length < retainedCount);
+    return { ...payload, videos: collected, offset: 0 };
+  };
+  return fetchPage()
     .then((payload) => {
+      if (requestId !== videoLoadRequestId) return;
       const nextVideos = (payload.videos || []).map(normalizeApiVideo);
       videos = sortVideosByPublishTime(append ? appendUniqueById(videos, nextVideos) : nextVideos);
       updateVideoPageState(payload, append);
-      if (!selectedVideoId || !videos.some((video) => video.id === selectedVideoId)) {
+      if (!selectedVideoId || (activeView !== "detail" && !videos.some((video) => video.id === selectedVideoId))) {
         selectedVideoId = videos[0]?.id || null;
       }
       renderAll();
       writeApiCache();
     })
     .catch((error) => {
+      if (requestId !== videoLoadRequestId) return;
       videoPageState = { ...videoPageState, loading: false, error: error.message };
       renderVideos();
       console.info("Video page load failed:", error.message);
@@ -774,6 +883,7 @@ function loadProgressSummary() {
 }
 
 async function fetchApiJson(path) {
+  if (window.DECOR_PUBLIC_LIBRARY) return window.DECOR_PUBLIC_LIBRARY.get(path);
   const response = await fetch(`${API_BASE}${path}`, { credentials: "include" });
   if (!response.ok) throw new Error(`${path.replace(/^\//, "")} ${response.status}`);
   return response.json();
@@ -794,7 +904,9 @@ async function loadApiData(options = {}) {
   try {
     const bootstrapPayload = await fetchApiJson("/bootstrap");
     if (requestId !== apiLoadRequestId) return;
-    applyBootstrapPayload(bootstrapPayload);
+    const preserveVideoList = Boolean(activeSourceFilter || activeVideoPlatform !== "全部" || activeVideoCreator !== "全部" || videos.length > VIDEO_PAGE_SIZE);
+    applyBootstrapPayload(bootstrapPayload, { preserveVideoList });
+    if (preserveVideoList) await loadVideoPage({ preserveLoaded: true });
     apiLoadState = { status: "ready", error: "", attempts: attempt };
     renderAll();
     writeApiCache();
@@ -803,6 +915,9 @@ async function loadApiData(options = {}) {
     }
     loadProgressSummary();
     loadProgressPage();
+    if (activeView === "detail" && selectedVideoId) {
+      loadVideoDetail(selectedVideoId).then(renderDetail).catch((error) => console.info("Video detail load failed:", error.message));
+    }
     return;
   } catch (error) {
     console.info("Bootstrap data load failed, falling back to split endpoints:", error.message);
@@ -893,9 +1008,7 @@ async function loadApiData(options = {}) {
 }
 
 async function loadVideoDetail(videoId) {
-  const detailResponse = await fetch(`${API_BASE}/videos/${videoId}`, { credentials: "include" });
-  if (!detailResponse.ok) throw new Error(`video ${videoId} ${detailResponse.status}`);
-  const detail = await detailResponse.json();
+  const detail = await fetchApiJson(`/videos/${encodeURIComponent(videoId)}`);
   const detailedVideo = normalizeApiVideo({
     ...detail.video,
     claim_count: detail.claims.length,
@@ -937,15 +1050,20 @@ function setIngestMessage(message, type = "") {
 }
 
 function setIngestOpen(isOpen) {
+  if (ingestSubmitting) return;
   ingestPanel.hidden = !isOpen;
+  openIngestButton?.setAttribute("aria-expanded", String(isOpen));
   if (isOpen) {
     setView("sources");
     setIngestMessage("");
-    ingestForm.querySelector("textarea[name='batch_profile_url']").focus();
+    ingestForm.querySelector("[name='batch_profile_url']").focus();
+  } else {
+    openIngestButton?.focus();
   }
 }
 
 async function postJson(url, payload) {
+  if (window.DECOR_PUBLIC_LIBRARY) throw new Error("公开预览仅支持浏览，不支持修改或删除。");
   const response = await fetch(url, {
     method: "POST",
     credentials: "include",
@@ -954,12 +1072,18 @@ async function postJson(url, payload) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && data.error === "admin login required") {
+      adminSession = { ...adminSession, authenticated: false };
+      renderAdminSession();
+      throw new Error("管理员登录已失效，请重新登录后操作。");
+    }
     throw new Error(data.error || data.message || `${response.status}`);
   }
   return data;
 }
 
 async function getJson(url) {
+  if (window.DECOR_PUBLIC_LIBRARY) return window.DECOR_PUBLIC_LIBRARY.get(url);
   const response = await fetch(url, { credentials: "include" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -969,6 +1093,7 @@ async function getJson(url) {
 }
 
 async function deleteJson(url) {
+  if (window.DECOR_PUBLIC_LIBRARY) throw new Error("公开预览仅支持浏览，不支持修改或删除。");
   const response = await fetch(url, {
     method: "DELETE",
     credentials: "include",
@@ -1007,6 +1132,7 @@ function parseBatchVideoLinks(text) {
 }
 
 async function saveVideoFromForm(mode) {
+  requireAdminAction();
   const payload = formPayload(ingestForm);
   if (mode === "batch") {
     await batchCollectVideos(payload);
@@ -1062,6 +1188,7 @@ async function saveVideoFromForm(mode) {
 }
 
 async function quickIngestVideo(payload, shouldExtract) {
+  requireAdminAction();
   const shareInput = payload.share_text || payload.share_url || payload.source_url;
   const transcriptText = payload.transcript_text || "";
   if (!shareInput) {
@@ -1094,10 +1221,18 @@ async function quickIngestVideo(payload, shouldExtract) {
   setIngestMessage("");
 }
 
-function removeVideoFromState(videoId) {
+function removeVideoFromState(videoId, deleteClaims = true) {
+  if (videos.some((video) => video.id === videoId)) {
+    videoPageState.total = Math.max(0, videoPageState.total - 1);
+    videoPageState.offset = Math.max(0, videoPageState.offset - 1);
+  }
+  if (progressVideos.some((video) => video.id === videoId)) {
+    progressPageState.total = Math.max(0, progressPageState.total - 1);
+    progressPageState.offset = Math.max(0, progressPageState.offset - 1);
+  }
   videos = videos.filter((video) => video.id !== videoId);
   progressVideos = progressVideos.filter((video) => video.id !== videoId);
-  knowledgeClaims = knowledgeClaims.filter((claim) => claim.videoId !== videoId);
+  if (deleteClaims) knowledgeClaims = knowledgeClaims.filter((claim) => claim.videoId !== videoId);
   if (selectedVideoId === videoId) {
     selectedVideoId = videos[0]?.id || progressVideos[0]?.id || null;
   }
@@ -1117,17 +1252,61 @@ function removeClaimFromState(claimId, videoId) {
   });
 }
 
+function confirmVideoDeletion(video) {
+  const dialog = document.querySelector("#video-delete-dialog");
+  if (dialog.open) return Promise.resolve(null);
+  document.querySelector("#video-delete-name").textContent = video.title || video.id;
+  const deleteClaims = document.querySelector("#video-delete-claims");
+  deleteClaims.checked = true;
+  dialog.returnValue = "cancel";
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      resolve(dialog.returnValue === "confirm" ? { deleteClaims: deleteClaims.checked } : null);
+    }, { once: true });
+    dialog.showModal();
+  });
+}
+
+const deletingVideoIds = new Set();
+let libraryMetadataRequestId = 0;
+
+async function refreshLibraryMetadata() {
+  const requestId = ++libraryMetadataRequestId;
+  // Refresh counts without applying bootstrap's first page over the user's loaded range.
+  const payload = await fetchApiJson("/bootstrap");
+  if (requestId !== libraryMetadataRequestId) return;
+  sources = payload.sources || sources;
+  apiStats = normalizeApiStats(payload.stats || {});
+  videoFacets = payload.video_facets || videoFacets;
+  knowledgeFacets = payload.knowledge?.facets || knowledgeFacets;
+  renderIfActive("overview", "sources", "videos");
+  writeApiCache();
+}
+
 async function deleteVideo(videoId) {
+  if (deletingVideoIds.has(videoId)) return;
   if (!adminSession.authenticated) {
     await loginAdmin();
     if (!adminSession.authenticated) return;
   }
-  const video = findDetailVideo(videoId);
-  if (!confirm(`确定删除这个视频及其观点吗？\n${video?.title || videoId}`)) return;
-  await deleteJson(`${API_BASE}/videos/${videoId}`);
-  removeVideoFromState(videoId);
-  await Promise.allSettled([loadProgressSummary(), loadKnowledgePage(), loadVideoPage()]);
-  renderAll();
+  const video = videos.find((item) => item.id === videoId) || progressVideos.find((item) => item.id === videoId);
+  if (!video) return;
+  deletingVideoIds.add(videoId);
+  try {
+    const confirmation = await confirmVideoDeletion(video);
+    if (!confirmation) return;
+    const scrollPosition = { left: window.scrollX, top: window.scrollY };
+    const deletionView = activeView;
+    await deleteJson(`${API_BASE}/videos/${videoId}?delete_claims=${confirmation.deleteClaims}`);
+    removeVideoFromState(videoId, confirmation.deleteClaims);
+    await Promise.allSettled([loadProgressSummary(), loadKnowledgePage(), loadVideoPage({ preserveLoaded: true }), refreshLibraryMetadata()]);
+    renderAll();
+    if (activeView === deletionView) {
+      window.scrollTo({ ...scrollPosition, behavior: "instant" });
+    }
+  } finally {
+    deletingVideoIds.delete(videoId);
+  }
 }
 
 async function deleteClaim(claimId, videoId) {
@@ -1146,10 +1325,14 @@ async function deleteClaim(claimId, videoId) {
 }
 
 async function batchCollectVideos(payload) {
+  requireAdminAction();
   if (!payload.batch_profile_url) {
     throw new Error("请填写主页链接");
   }
-  const limit = Number(payload.batch_limit) || 5;
+  const limit = Number(payload.batch_limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    throw new Error("采集数量需为 1 到 50 的整数");
+  }
   const profileUrl = payload.batch_profile_url;
   const existingSource = sources.find((source) => source.profile_url === profileUrl || source.profile_url?.split("?")[0] === profileUrl.split("?")[0]);
 
@@ -1157,7 +1340,7 @@ async function batchCollectVideos(payload) {
   let sourceId = existingSource?.id;
   if (!sourceId) {
     const created = await postJson(`${API_BASE}/sources`, {
-      platform: payload.batch_platform,
+      platform: "抖音",
       name: "待识别博主",
       profile_url: profileUrl,
       priority: "P1",
@@ -1174,50 +1357,97 @@ async function batchCollectVideos(payload) {
   }
   renderAll();
   setView("sources");
-  setIngestOpen(false);
+  ingestPanel.hidden = true;
+  openIngestButton?.setAttribute("aria-expanded", "false");
   ingestForm.reset();
-  setIngestMessage(
-    result.stats
-      ? `更新完成：保存 ${result.stats.saved} 条，新增 ${result.stats.created} 条，重复 ${result.stats.duplicate} 条。`
-      : "",
+  setSourceMessage(
+    result.message || (result.stats
+      ? `更新完成：新增 ${result.stats.created} 条，重复 ${result.stats.duplicate} 条。`
+      : "来源已保存，作品采集完成。"),
+    "ok",
   );
 }
 
 async function updateSource(sourceId) {
+  requireAdminAction();
   setSourceMessage("正在请求更新来源...");
   const result = await postJson(`${API_BASE}/sources/${sourceId}/update`, { limit: 5 });
   await loadApiData();
   renderAll();
   setView("sources");
   setSourceMessage(
-    result.stats
-      ? `更新完成：保存 ${result.stats.saved} 条，新增 ${result.stats.created} 条，重复 ${result.stats.duplicate} 条。`
-      : result.message || result.status,
+    result.message || (result.stats
+      ? `更新完成：新增 ${result.stats.created} 条，重复 ${result.stats.duplicate} 条。`
+      : result.status),
     "ok",
   );
 }
 
 async function updateAllSources() {
-  setSourceMessage("正在请求更新所有来源...");
+  requireAdminAction();
+  setSourceMessage("正在串行更新所有启用的来源，请等待采集完成...");
   const result = await postJson(`${API_BASE}/sources/update-all`, { limit: 5 });
-  await loadApiData();
+  let refreshError = "";
+  try {
+    await loadApiData();
+  } catch (error) {
+    refreshError = `列表刷新失败：${error.message}，请刷新页面查看已保存结果。`;
+  }
   renderAll();
   setView("sources");
-  setSourceMessage(result.message || result.status, result.status === "collector_not_ready" ? "warn" : "ok");
+  const labels = { completed: "更新完成", partial: "部分更新完成", failed: "更新失败", skipped: "未执行更新" };
+  const types = { completed: "ok", partial: "warn", failed: "error", skipped: "warn" };
+  const stats = result.stats;
+  const summary = result.summary;
+  let message = labels[result.status] || "更新结果异常";
+  if (summary) {
+    message += `：成功 ${summary.completed} 个来源，失败 ${summary.failed} 个，跳过 ${summary.skipped} 个`;
+  }
+  if (stats) {
+    message += `；新增 ${stats.created} 条，重复 ${stats.duplicate} 条。`;
+  }
+  if (result.message) message = result.message;
+  const details = (result.sources || [])
+    .filter((source) => source.status !== "completed")
+    .map((source) => `${source.name || source.source_id}：${source.message || source.error || source.status}`);
+  if (details.length) message += ` ${details.join("；")}`;
+  if (refreshError) message += ` ${refreshError}`;
+  const type = types[result.status] || "error";
+  setSourceMessage(message, refreshError && type === "ok" ? "warn" : type);
 }
 
-async function refreshDouyinLoginStatus() {
-  const status = await getJson(`${API_BASE}/douyin/login-status`);
-  douyinLoginStatus = status;
+function refreshDouyinLoginStatus() {
+  if (douyinLoginRequest) return douyinLoginRequest;
+  const requestId = ++douyinLoginRequestId;
+  douyinLoginChecking = true;
   renderSources();
-  if (!status.running && douyinLoginTimer) {
-    clearInterval(douyinLoginTimer);
-    douyinLoginTimer = null;
-  }
-  return status;
+  douyinLoginRequest = getJson(`${API_BASE}/douyin/login-status`)
+    .then((status) => {
+      if (requestId !== douyinLoginRequestId) return douyinLoginStatus;
+      douyinLoginStatus = status;
+      if (!status.running && douyinLoginTimer) {
+        clearInterval(douyinLoginTimer);
+        douyinLoginTimer = null;
+      }
+      return status;
+    })
+    .catch((error) => {
+      if (requestId === douyinLoginRequestId) {
+        douyinLoginStatus = { status: "unknown", message: error.message, logged_in: null, running: false };
+      }
+      throw error;
+    })
+    .finally(() => {
+      douyinLoginChecking = false;
+      douyinLoginRequest = null;
+      renderSources();
+    });
+  return douyinLoginRequest;
 }
 
 async function startDouyinLogin(profileUrl) {
+  requireAdminAction();
+  ++douyinLoginRequestId;
   setSourceMessage("正在打开抖音登录窗口...");
   const status = await postJson(`${API_BASE}/douyin/login/start`, {
     profile_url: profileUrl || "https://www.douyin.com/",
@@ -1247,7 +1477,7 @@ function setProgressRunButtonState(state, label) {
   if (!progressProcessPendingButton) return;
   const labelEl = progressProcessPendingButton.querySelector("[data-run-label]");
   progressProcessPendingButton.dataset.state = state;
-  progressProcessPendingButton.disabled = state === "starting";
+  setAdminActionBusy(progressProcessPendingButton, state === "starting");
   if (labelEl) labelEl.textContent = label;
 }
 
@@ -1324,10 +1554,10 @@ function jumpLogToBottom(panel) {
 }
 
 async function locateNextTranscriptVideo() {
-  setQueueMessage("正在查找下一条待文案视频...");
+  setQueueMessage("正在查找下一条待提取文案视频...");
   const result = await getJson(`${API_BASE}/queue/next`);
   if (!result.next_transcript) {
-    setQueueMessage("没有待文案视频。", "ok");
+    setQueueMessage("没有待提取文案视频。", "ok");
     return;
   }
   selectedVideoId = result.next_transcript.id;
@@ -1336,10 +1566,11 @@ async function locateNextTranscriptVideo() {
   renderAll();
   renderDetail();
   setView("detail");
-  setQueueMessage(`待文案：${result.next_transcript.title}`, "ok");
+  setQueueMessage(`待提取文案：${result.next_transcript.title}`, "ok");
 }
 
 async function extractNextQueuedVideo() {
+  requireAdminAction();
   setQueueMessage("正在提取下一条已保存文案...");
   const result = await postJson(`${API_BASE}/queue/extract-next`, {});
   if (result.status === "empty") {
@@ -1359,6 +1590,7 @@ async function extractNextQueuedVideo() {
 }
 
 async function retryVideoTranscript(videoId) {
+  requireAdminAction();
   setProgressMessage("正在重新提取视频文案...");
   const result = await postJson(`${API_BASE}/videos/${videoId}/transcript/retry`, {});
   await loadApiData();
@@ -1368,6 +1600,7 @@ async function retryVideoTranscript(videoId) {
 }
 
 async function processPendingQueue(limit = 5) {
+  requireAdminAction();
   setProgressMessage(`自动处理中：最多 ${limit} 条，按队列串行执行...`);
   const result = await postJson(`${API_BASE}/queue/process-pending`, {
     limit,
@@ -1421,7 +1654,8 @@ function getQueueResultText(status) {
     if (shortMatch) return `文案过短，已拉取 ${shortMatch[1]} 字，未进入观点提取`;
     return `处理失败：${error}`;
   }
-  if (processed.length) return "处理完成，观点已入库";
+  if (processed.some((item) => item.stage === "skipped_advertising")) return "推广或待确认内容，已跳过自动观点提取";
+  if (processed.length) return "处理完成";
   return "处理结束，未产生新结果";
 }
 
@@ -1483,7 +1717,7 @@ function getProgressStageTags(video) {
     {
       key: "claims",
       title: "观点",
-      label: claimCount > 0 ? `${claimCount} 条` : isFiltered ? "已过滤" : "待提取",
+      label: claimCount > 0 ? `${claimCount} 条` : video.adReview?.decision === "advertising" ? "推广跳过" : ["uncertain", "error"].includes(video.adReview?.decision) ? "待确认" : isFiltered ? "已过滤" : "待提取",
       state: claimCount > 0 || isFiltered ? "done" : "todo",
     },
   ];
@@ -1565,6 +1799,45 @@ function safeUrl(value) {
   return escapeHtml(sanitizeUrl(value));
 }
 
+async function copySourceLink(button) {
+  const url = sanitizeUrl(button.dataset.copySourceUrl);
+  if (url === "#") return;
+  const feedback = button.parentElement.querySelector(".copy-link-feedback");
+  const setFeedback = (message) => {
+    button.title = message || "复制分享链接";
+    button.setAttribute("aria-label", message || "复制分享链接");
+    if (feedback) feedback.textContent = message;
+  };
+  button.disabled = true;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const previousFocus = document.activeElement;
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.readOnly = true;
+      textarea.style.cssText = "position:fixed;left:-9999px;top:0";
+      document.body.append(textarea);
+      try {
+        textarea.select();
+        if (!document.execCommand("copy")) throw new Error("clipboard unavailable");
+      } finally {
+        textarea.remove();
+        previousFocus?.focus();
+      }
+    }
+    setFeedback("已复制");
+  } catch (error) {
+    setFeedback("复制失败，请重试");
+  } finally {
+    button.disabled = false;
+    window.setTimeout(() => {
+      setFeedback("");
+    }, 2000);
+  }
+}
+
 function setupAutoLoadMore() {
   if (!("IntersectionObserver" in window)) return;
   if (!autoLoadObserver) {
@@ -1615,6 +1888,7 @@ async function pollQueueStatus() {
 }
 
 async function startQueueJob(limit = 20) {
+  requireAdminAction();
   setProgressMessage(`自动处理中：最多 ${limit} 条，按队列串行执行...`);
   setProgressRunButtonState("starting", "启动中...");
   queueLogMode = "global";
@@ -1633,6 +1907,7 @@ async function startQueueJob(limit = 20) {
 }
 
 async function cancelQueueJob() {
+  requireAdminAction();
   setProgressMessage("正在请求暂停队列...");
   setProgressRunButtonState("starting", "暂停中...");
   const status = await postJson(`${API_BASE}/queue/cancel`, {});
@@ -1648,6 +1923,7 @@ async function cancelQueueJob() {
 }
 
 async function startVideoRetryJob(videoId, force = false) {
+  requireAdminAction();
   queueLogMode = "row";
   activeProgressLogVideoId = videoId;
   if (queueLogPanel) queueLogPanel.hidden = true;
@@ -1689,6 +1965,12 @@ function setView(view, options = {}) {
   if (!viewNames.has(view)) {
     view = "overview";
   }
+  if (["deleted", "settings"].includes(view) && !adminSession.authenticated) {
+    // Preserve a bookmarked admin view only while the initial session check is pending.
+    if (adminSessionLoaded) history.replaceState({ view: "overview" }, "", "#overview");
+    view = "overview";
+    options = { ...options, updateHash: false };
+  }
   activeView = view;
   document.querySelectorAll(".view").forEach((el) => el.classList.remove("active"));
   document.querySelector(`#${view}-view`).classList.add("active");
@@ -1697,7 +1979,7 @@ function setView(view, options = {}) {
   });
   pageTitle.textContent = viewTitles[view];
   if (openIngestButton) {
-    openIngestButton.hidden = view !== "sources";
+    openIngestButton.hidden = view !== "sources" || !adminSession.authenticated;
   }
   if (view !== "sources" && ingestPanel) {
     ingestPanel.hidden = true;
@@ -1707,6 +1989,10 @@ function setView(view, options = {}) {
   }
   if (options.render !== false) {
     renderCurrentView();
+  }
+  if (view === "settings" && options.load !== false) loadTranscriptSettings();
+  if (view === "sources" && options.load !== false && adminSession.authenticated) {
+    refreshDouyinLoginStatus().catch((error) => console.info("Douyin login check failed:", error.message));
   }
   if (view === "deleted" && options.load !== false) {
     loadDeletedItems();
@@ -1726,7 +2012,6 @@ function enforceHashView() {
 }
 
 function renderOverview() {
-  const claims = getAllClaims();
   document.querySelector("#metric-stages").textContent = stages.length;
   document.querySelector("#metric-notes").textContent = overviewProcessNodes.length;
   document.querySelector("#metric-dos").textContent = firstKnownCount(apiStats.videoCount, videos.length);
@@ -1735,16 +2020,15 @@ function renderOverview() {
   const colors = ["#0f7a4d", "#e33b2f", "#1456a3", "#f2c230"];
   document.querySelector("#timeline").innerHTML = stages
     .map((stage, index) => {
-      const count = claims.filter((claim) => claim.stage === stage.name).length;
+      const count = getKnowledgeCategoryCount({ type: "stage", value: stage.name }) ?? "…";
       return `
         <article class="timeline-card" style="--accent: ${colors[index % colors.length]}" data-knowledge-stage="${escapeAttr(stage.name)}">
           <button type="button" aria-label="查看${escapeAttr(stage.name)}" data-knowledge-stage="${escapeAttr(stage.name)}"></button>
-          <span class="eyebrow">阶段 ${String(index + 1).padStart(2, "0")}</span>
+          <span class="stage-number" aria-hidden="true">${index + 1}</span>
           <h3>${escapeHtml(stage.name)}</h3>
-          <p>${escapeHtml(stage.desc)}</p>
           <div class="timeline-meta">
             <span class="chip">${count} 条观点</span>
-            <span class="chip">风险 ${escapeHtml(stage.risk)}</span>
+            <span class="chip risk-chip" data-risk="${escapeAttr(stage.risk)}">风险 ${escapeHtml(stage.risk)}</span>
           </div>
         </article>
       `;
@@ -1752,9 +2036,25 @@ function renderOverview() {
     .join("");
 }
 
+function sourceHomepageLabel(source) {
+  const platform = String(source.platform || "");
+  if (/抖音|douyin/i.test(platform)) return "跳转到抖音主页";
+  if (/小红书|xiaohongshu/i.test(platform)) return "跳转到小红书主页";
+  if (/B站|bilibili/i.test(platform)) return "跳转到B站主页";
+  return platform && platform !== "待识别" ? `跳转到${platform}主页` : "跳转到来源主页";
+}
+
 function renderSources() {
-  const loginType = douyinLoginStatus.logged_in ? "done" : douyinLoginStatus.running ? "warn" : "";
-  const loginLabel = douyinLoginStatus.logged_in ? "抖音已登录" : douyinLoginStatus.running ? "登录检测中" : "抖音未登录";
+  const sourceSummary = document.querySelector("#source-summary");
+  if (sourceSummary) {
+    const total = sources.reduce((sum, source) => sum + (normalizeCount(source.video_count) ?? 0), 0);
+    sourceSummary.textContent = `${sources.length} 个来源，${total} 条入库视频。${window.DECOR_PUBLIC_LIBRARY ? "公开快照，仅供浏览与检索。" : "每位博主默认更新最新 5 条，自动跳过置顶。"}`;
+  }
+  const loginChecking = douyinLoginChecking || douyinLoginStatus.running;
+  const loginUnknown = ["idle", "unknown"].includes(douyinLoginStatus.status) || douyinLoginStatus.logged_in == null;
+  const loginType = loginChecking || loginUnknown ? "warn" : douyinLoginStatus.logged_in ? "done" : "";
+  const loginLabel = loginChecking ? "登录检测中" : loginUnknown ? "登录态待确认"
+    : douyinLoginStatus.logged_in ? "登录态已保存" : "抖音未登录";
   const platformOrder = ["抖音", "小红书", "B站", "待识别"];
   const groupedSources = sources.reduce((acc, source) => {
     const platform = source.platform || "待识别";
@@ -1768,20 +2068,23 @@ function renderSources() {
   ];
   const renderSourceCard = (source) => `
     <article class="source-card" role="button" tabindex="0" data-source-filter-id="${escapeAttr(source.id)}" data-source-filter-name="${escapeAttr(source.name)}">
-      <div>
+      <div class="source-card-heading">
+        <div class="source-card-identity">
+          <h3>${escapeHtml(source.name)}</h3>
+          <a class="source-home-link" href="${safeUrl(source.profile_url)}" target="_blank" rel="noreferrer" aria-label="${escapeAttr(sourceHomepageLabel(source))}" data-tooltip="${escapeAttr(sourceHomepageLabel(source))}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3 10 14"/><path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></svg>
+          </a>
+        </div>
         <span class="status ${source.status === "active" ? "done" : ""}">${escapeHtml(getSourceStatusLabel(source.status))}</span>
-        <h3>${escapeHtml(source.name)}</h3>
-        <p>${escapeHtml(source.platform)} / ${escapeHtml(source.priority)}</p>
       </div>
       <div class="timeline-meta">
         <span class="chip">${Number(source.video_count || 0)} 条视频</span>
         <span class="chip">${Number(source.pending_count || 0)} 条文案待提取</span>
         <span class="chip">${Number(source.claim_count || 0)} 条观点</span>
       </div>
-      <footer>
-        <button class="primary-button small red" type="button" data-update-source-id="${escapeAttr(source.id)}">更新 5 条</button>
-        <a class="source-link compact-link" href="${safeUrl(source.profile_url)}" target="_blank" rel="noreferrer">主页链接</a>
-      </footer>
+      ${adminSession.authenticated ? `<footer data-admin-only>
+        <button class="primary-button small red" type="button" data-update-source-id="${escapeAttr(source.id)}" ${adminActionAttributes()}>更新 5 条</button>
+      </footer>` : ""}
     </article>
   `;
   const sourceGroups =
@@ -1796,16 +2099,16 @@ function renderSources() {
             return `
               <section class="source-group">
                 <header class="source-group-head">
-                  <div>
-                    <span class="status ${isDouyin ? loginType : ""}">${escapeHtml(isDouyin ? loginLabel : platform)}</span>
+                  <div class="source-group-summary">
                     <h3>${escapeHtml(platform)}</h3>
+                    ${isDouyin && adminSession.authenticated ? `<span class="status ${loginType}">${escapeHtml(loginLabel)}</span>` : ""}
                     <p>${groupSources.length} 个博主 / ${groupVideoCount} 条视频 / ${groupPendingCount} 条文案待提取</p>
                   </div>
                   ${
-                    isDouyin
-                      ? `<div class="source-group-actions">
-                          <button class="primary-button small" type="button" id="check-douyin-login">检查登录态</button>
-                          <button class="primary-button small" type="button" data-douyin-login-url="${escapeAttr(loginProfileUrl)}">登录抖音</button>
+                    isDouyin && adminSession.authenticated
+                      ? `<div class="source-group-actions" data-admin-only>
+                          <button class="primary-button small" type="button" id="check-douyin-login" ${loginChecking ? "disabled" : ""}>${loginChecking ? "检测中…" : "检查登录态"}</button>
+                          <button class="primary-button small" type="button" data-douyin-login-url="${escapeAttr(loginProfileUrl)}" ${adminActionAttributes()}>登录抖音</button>
                         </div>`
                       : ""
                   }
@@ -1834,27 +2137,51 @@ function renderPipeline() {
     .join("");
 }
 
+function getVideoFilterCounts() {
+  // Use the full catalog, so loading a page or selecting a creator cannot hide options.
+  const platformRows = videoFacets?.platforms || sources.map((source) => ({
+    platform: source.platform,
+    video_count: source.video_count,
+  }));
+  const creatorRows = videoFacets?.creators || sources.map((source) => ({
+    platform: source.platform,
+    creator: source.name,
+    video_count: source.video_count,
+  }));
+  const platforms = new Map();
+  const creators = new Map();
+  for (const row of platformRows) {
+    if (!row.platform) continue;
+    platforms.set(row.platform, (platforms.get(row.platform) || 0) + (normalizeCount(row.video_count) ?? 0));
+  }
+  for (const row of creatorRows) {
+    if (!row.creator || (activeVideoPlatform !== "全部" && row.platform !== activeVideoPlatform)) continue;
+    creators.set(row.creator, (creators.get(row.creator) || 0) + (normalizeCount(row.video_count) ?? 0));
+  }
+  const total = firstKnownCount(videoFacets?.total, apiStats.videoCount, [...platforms.values()].reduce((sum, count) => sum + count, 0));
+  return { platforms, creators, total };
+}
+
 function renderVideoFilters() {
   const panel = document.querySelector("#video-filter-panel");
   if (!panel) return;
-  const platforms = ["全部", ...new Set(videos.map((video) => video.platform).filter(Boolean))];
-  const platformScopedVideos = activeVideoPlatform === "全部" ? videos : videos.filter((video) => video.platform === activeVideoPlatform);
-  const creators = ["全部", ...new Set(platformScopedVideos.map((video) => video.creator).filter(Boolean))];
-  if (!creators.includes(activeVideoCreator)) {
-    activeVideoCreator = "全部";
-  }
+  const counts = getVideoFilterCounts();
+  const platforms = ["全部", ...counts.platforms.keys()];
+  const creators = ["全部", ...counts.creators.keys()];
+  const platformTotal = activeVideoPlatform === "全部" ? counts.total : (counts.platforms.get(activeVideoPlatform) || 0);
   panel.innerHTML = `
     <section class="video-filter-group" aria-label="按平台筛选">
       <span>平台</span>
       <div>
         ${platforms
-          .map(
-            (platform) => `
-              <button class="filter-button ${activeVideoPlatform === platform ? "active" : ""}" type="button" data-video-platform="${escapeAttr(platform)}">
-                ${escapeHtml(platform)}
+          .map((platform) => {
+            const count = platform === "全部" ? counts.total : counts.platforms.get(platform);
+            return `
+              <button class="filter-button ${activeVideoPlatform === platform ? "active" : ""}" type="button" data-video-platform="${escapeAttr(platform)}" data-video-count="${count}">
+                ${escapeHtml(platform)} ${count}
               </button>
-            `,
-          )
+            `;
+          })
           .join("")}
       </div>
     </section>
@@ -1862,13 +2189,14 @@ function renderVideoFilters() {
       <span>博主</span>
       <div>
         ${creators
-          .map(
-            (creator) => `
-              <button class="filter-button ${activeVideoCreator === creator ? "active" : ""}" type="button" data-video-creator="${escapeAttr(creator)}">
-                ${escapeHtml(creator)}
+          .map((creator) => {
+            const count = creator === "全部" ? platformTotal : counts.creators.get(creator);
+            return `
+              <button class="filter-button ${activeVideoCreator === creator ? "active" : ""}" type="button" data-video-creator="${escapeAttr(creator)}" data-video-count="${count}">
+                ${escapeHtml(creator)} ${count}
               </button>
-            `,
-          )
+            `;
+          })
           .join("")}
       </div>
     </section>
@@ -1914,30 +2242,43 @@ function renderVideos() {
           const hasTranscript = hasVideoTranscript(video);
           const hasClaims = video.claimCount > 0 || video.claims.length > 0;
           const isFiltered = video.status === "claims_filtered";
-          const isDone = ["transcript_saved", "claims_extracted", "claims_filtered", "claims_seeded"].includes(video.status) || hasClaims;
-          const extractLabel = hasClaims ? "已提取" : isFiltered ? "已过滤" : hasTranscript ? "提取观点" : "待文案";
-          const extractDisabled = hasClaims || isFiltered || !hasTranscript ? "disabled" : "";
+          const extracting = Boolean(videoExtractions.get(video.id)?.running);
+          const extractLabel = extracting ? "提取中" : "提取观点";
+          const extractBlocked = extracting || hasClaims || isFiltered || !hasTranscript;
+          const transcriptLabel = hasTranscript ? "文案已保存" : video.status === "transcript_failed" ? "文案获取失败" : "文案未获取";
+          const claimsLabel = extracting ? "观点提取中" : hasClaims ? "观点已提取" : isFiltered ? "观点已过滤" : "观点未提取";
+          const statusIcon = (complete) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${complete ? '<path d="m3 8 3 3 7-7"/>' : '<path d="m4 4 8 8M12 4l-8 8"/>'}</svg>`;
           return `
         <article class="video-card">
           <div>
-            <span class="status ${isDone ? "done" : video.status === "transcript_failed" ? "failed" : ""}">${escapeHtml(getVideoStatusLabel(video.status))}</span>
+            <div class="video-content-status" aria-label="文案与观点状态">
+              <span class="status ${hasTranscript ? "done" : "missing"}" title="${transcriptLabel}" aria-label="${transcriptLabel}">文案 ${statusIcon(hasTranscript)}</span>
+              <span class="status ${hasClaims ? "done" : "missing"}" title="${claimsLabel}" aria-label="${claimsLabel}">观点 ${statusIcon(hasClaims)}</span>
+            </div>
+            ${renderAdBadge(video)}
             <h3>${escapeHtml(video.title)}</h3>
+            <div class="video-share-link">
+              <span class="video-share-label">分享链接：</span>
+              <a href="${safeUrl(video.sourceUrl)}" target="_blank" rel="noreferrer" title="${escapeAttr(video.sourceUrl)}">${sanitizeUrl(video.sourceUrl) === "#" ? "暂无链接" : escapeHtml(video.sourceUrl)}</a>
+              <button class="copy-link-button" type="button" data-copy-source-url="${escapeAttr(video.sourceUrl)}" ${sanitizeUrl(video.sourceUrl) === "#" ? "disabled" : ""} aria-label="复制分享链接" title="复制分享链接">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
+              </button>
+              <span class="copy-link-feedback" role="status"></span>
+            </div>
             <p>${escapeHtml(video.creator)} / ${escapeHtml(video.platform)}</p>
           </div>
           <div class="timeline-meta">
             <span class="chip">${escapeHtml(video.publishTime)}</span>
-            <span class="chip">${video.shareUrl ? "有分享链" : "无分享链"}</span>
-            <span class="chip">${video.claimCount} 条观点</span>
+            <button class="chip video-claims-trigger" type="button" data-video-claims-id="${escapeAttr(video.id)}" aria-haspopup="dialog" aria-controls="video-claims-dialog" aria-label="查看${escapeAttr(video.title)}的观点">${video.claimCount} 条观点</button>
           </div>
           <footer>
             <button class="primary-button small" type="button" data-video-id="${escapeAttr(video.id)}">查看详情</button>
-            <button class="primary-button small red" type="button" data-extract-video-id="${escapeAttr(video.id)}" ${extractDisabled}>${escapeHtml(extractLabel)}</button>
+            ${adminSession.authenticated && hasTranscript && !hasClaims && !isFiltered ? `<button class="primary-button small red" type="button" data-extract-video-id="${escapeAttr(video.id)}" ${adminActionAttributes(extractBlocked)}>${escapeHtml(extractLabel)}</button>` : ""}
             ${
               adminSession.authenticated
                 ? `<button class="primary-button small red" type="button" data-delete-video-id="${escapeAttr(video.id)}">删除视频</button>`
                 : ""
             }
-            <a class="source-link compact-link" href="${safeUrl(video.sourceUrl)}" target="_blank" rel="noreferrer">来源链接</a>
           </footer>
         </article>
       `;
@@ -1945,15 +2286,17 @@ function renderVideos() {
         .join("")
     : emptyState;
   const paginationCard =
-    visibleVideos.length || videoPageState.loading || videoPageState.error
+    visibleVideos.length || videoPageState.total > 0 || videoPageState.loading || videoPageState.error
       ? `
         <article class="video-filter-notice">
-          <span>已显示 ${Math.min(videos.length, videoPageState.total || videos.length)} / ${videoPageState.total || videos.length} 条视频</span>
+          <span>已显示 ${visibleVideos.length} / ${videoPageState.total} 条视频</span>
           ${
             videoPageState.error
-              ? `<span>加载失败：${escapeHtml(videoPageState.error)}</span>`
+              ? `<span>加载失败：${escapeHtml(videoPageState.error)}</span><button class="primary-button small" type="button" id="retry-video-page">重试加载</button>`
               : videoPageState.loading
                 ? `<span>正在加载...</span>`
+                : !videoPageState.hasMore && visibleVideos.length < videoPageState.total
+                  ? `<span>列表数据待同步</span><button class="primary-button small" type="button" id="retry-video-page">重新同步列表</button>`
                 : videoPageState.hasMore
                   ? `<button class="primary-button small" type="button" id="load-more-videos">加载更多</button>`
                   : `<span>已加载全部</span>`
@@ -1963,16 +2306,30 @@ function renderVideos() {
       : "";
   document.querySelector("#video-grid").innerHTML = filterNotice + videoCards + paginationCard;
   setupAutoLoadMore();
+  if (activeView === "videos" && !videoPageState.loading && !videoPageState.error && !videoPageState.hasMore && visibleVideos.length < videoPageState.total && !videoListRepairPending && videoListRepairAttemptId !== videoLoadRequestId) {
+    // Repair stale/mixed cached data once; never label a partial list as complete.
+    const requestId = videoLoadRequestId;
+    videoListRepairPending = true;
+    queueMicrotask(() => {
+      videoListRepairPending = false;
+      if (activeView !== "videos" || videoPageState.loading || requestId !== videoLoadRequestId) return;
+      const repair = loadVideoPage({ preserveLoaded: true });
+      videoListRepairAttemptId = videoLoadRequestId;
+      repair.catch((error) => console.info("Video list resync failed:", error.message));
+    });
+  }
 }
 
 function getVideoProgressState(video) {
+  if (video.adReview?.decision === "advertising") return { key: "已完成", label: "推广 · 已跳过", step: 3, retry: "完成" };
+  if (["uncertain", "error"].includes(video.adReview?.decision)) return { key: "待确认", label: "疑似推广", step: 2, retry: "重试" };
   const hasTranscript = hasVideoTranscript(video);
   const claimCount = video.claimCount || video.claims.length;
-  if (video.status === "transcript_failed" || video.lastError) {
-    return { key: "失败", label: "失败", step: 1, retry: "重试" };
-  }
   if (video.status === "claims_filtered") {
     return { key: "已完成", label: "已过滤", step: 3, retry: "完成" };
+  }
+  if (video.status === "transcript_failed" || video.lastError) {
+    return { key: "失败", label: "失败", step: 1, retry: "重试" };
   }
   if (!video.sourceUrl && !video.shareUrl) {
     return { key: "缺链接", label: "缺链接", step: 0, retry: "获取链接" };
@@ -1981,9 +2338,9 @@ function getVideoProgressState(video) {
     return { key: "已完成", label: "已完成", step: 3, retry: "完成" };
   }
   if (hasTranscript) {
-    return { key: "待观点", label: "待观点", step: 2, retry: "重试" };
+    return { key: "待观点", label: "待提取观点", step: 2, retry: "重试" };
   }
-  return { key: "待文案", label: "待文案", step: 1, retry: "重试" };
+  return { key: "待文案", label: "待提取文案", step: 1, retry: "重试" };
 }
 
 function renderProgress() {
@@ -1998,12 +2355,13 @@ function renderProgress() {
     { 全部: 0, 缺链接: 0, 待文案: 0, 待观点: 0, 已完成: 0, 失败: 0 },
   );
   const counts = progressSummary || localCounts;
-  const tabs = ["全部", "缺链接", "待文案", "待观点", "已完成", "失败"];
+  const tabs = ["全部", "缺链接", "待文案", "待观点", "待确认", "已完成", "失败"];
+  const progressTabLabels = { 待文案: "待提取文案", 待观点: "待提取观点" };
   document.querySelector("#progress-tabs").innerHTML = tabs
     .map(
       (tab) => `
         <button class="filter-button ${activeProgressFilter === tab ? "active" : ""}" type="button" data-progress-filter="${escapeAttr(tab)}">
-          ${escapeHtml(tab)} ${counts[tab] || 0}
+          ${escapeHtml(progressTabLabels[tab] || tab)} ${counts[tab] || 0}
         </button>
       `,
     )
@@ -2070,7 +2428,7 @@ function renderProgress() {
                 ${stageTags}
               </div>
               <footer>
-                <button class="primary-button small red" type="button" data-progress-retry-video-id="${escapeAttr(video.id)}" data-progress-retry-state="${escapeAttr(state.key)}">重试</button>
+                ${adminSession.authenticated ? `<button class="primary-button small red" type="button" data-progress-retry-video-id="${escapeAttr(video.id)}" data-progress-retry-state="${escapeAttr(state.key)}" ${adminActionAttributes()}>重试</button>` : ""}
                 <button class="primary-button small" type="button" data-video-id="${escapeAttr(video.id)}">详情</button>
                 ${
                   adminSession.authenticated
@@ -2098,35 +2456,235 @@ function applySourceFilter(sourceId, sourceName) {
   setView("videos");
 }
 
-function renderClaimCard(claim) {
-  const reasonItems = Array.isArray(claim.reasons) ? claim.reasons : [claim.reasons];
+let videoClaimsRequestId = 0;
+
+async function openVideoClaims(videoId) {
+  const dialog = document.querySelector("#video-claims-dialog");
+  const content = document.querySelector("#video-claims-dialog-content");
+  const title = document.querySelector("#video-claims-dialog-name");
+  const video = videos.find((item) => item.id === videoId);
+  const requestId = ++videoClaimsRequestId;
+  title.textContent = video?.title || "视频观点";
+  content.setAttribute("aria-busy", "true");
+  content.innerHTML = '<p class="video-claims-notice" role="status">正在加载观点…</p>';
+  if (!dialog.open) dialog.showModal();
+  try {
+    const detail = await fetchApiJson(`/videos/${encodeURIComponent(videoId)}`);
+    if (!dialog.open || requestId !== videoClaimsRequestId) return;
+    title.textContent = detail.video.title;
+    const claims = (detail.claims || []).map(normalizeApiClaim);
+    content.innerHTML = claims.length
+      ? claims.map((claim) => renderClaimCard(claim, { allowDelete: false })).join("")
+      : '<p class="video-claims-notice" role="status">暂无观点，该视频尚未提取出可用观点。</p>';
+  } catch (error) {
+    if (!dialog.open || requestId !== videoClaimsRequestId) return;
+    content.innerHTML = `<div class="video-claims-notice" role="alert"><p>观点加载失败：${escapeHtml(error.message)}</p><button class="primary-button small" type="button" data-video-claims-id="${escapeAttr(videoId)}">重试</button></div>`;
+  } finally {
+    if (requestId === videoClaimsRequestId) content.setAttribute("aria-busy", "false");
+  }
+}
+
+function renderClaimCard(claim, { allowDelete = true } = {}) {
+  const reasonItems = (Array.isArray(claim.reasons) ? claim.reasons : [claim.reasons]).filter(Boolean);
+  const supplementary = [
+    ["适用条件", claim.conditions],
+    ["替代做法", claim.alternatives],
+    ["价格信息", claim.priceInfo],
+  ].filter(([, value]) => value && String(value).trim() !== "未提及");
+  const tags = [...new Set([claim.stage, ...(claim.tags || [])].filter((tag) => tag && tag !== "未提及"))];
   const deleteButton =
-    adminSession.authenticated && claim.id
-      ? `<button class="primary-button small red" type="button" data-delete-claim-id="${escapeAttr(claim.id)}" data-delete-claim-video-id="${escapeAttr(claim.videoId || "")}">删除观点</button>`
+    allowDelete && adminSession.authenticated && claim.id
+      ? `<button class="primary-button small claim-delete-action" type="button" data-delete-claim-id="${escapeAttr(claim.id)}" data-delete-claim-video-id="${escapeAttr(claim.videoId || "")}" aria-label="删除观点：${escapeAttr(claim.object)}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>
+          <span>删除观点</span>
+        </button>`
       : "";
   return `
     <article class="result-card claim-card">
-      <span class="status ${claim.stance.includes("不推荐") ? "failed" : claim.stance.includes("推荐") ? "done" : ""}">
-        ${escapeHtml(claim.stance)}
-      </span>
-      <h3>${escapeHtml(claim.object)}</h3>
-      <p><strong>原文结论：</strong>${escapeHtml(claim.conclusion)}</p>
-      <p><strong>原文理由：</strong>${escapeHtml(reasonItems.join("；") || "未提及")}</p>
-      <p><strong>条件：</strong>${escapeHtml(claim.conditions || "未提及")}</p>
-      <p><strong>替代做法：</strong>${escapeHtml(claim.alternatives || "未提及")}</p>
-      <p><strong>价格信息：</strong>${escapeHtml(claim.priceInfo || "未提及")}</p>
-      <footer class="timeline-meta">
-        <span class="chip">${escapeHtml(claim.stage)}</span>
-        ${claim.tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}
-        <a class="chip link-chip" href="${safeUrl(claim.sourceUrl)}" target="_blank" rel="noreferrer">来源视频</a>
-        ${deleteButton}
+      <header class="claim-card-heading">
+        <h3>${escapeHtml(claim.object)}</h3>
+        <span class="status ${claim.stance.includes("不推荐") ? "failed" : claim.stance.includes("推荐") ? "done" : ""}">${escapeHtml(claim.stance)}</span>
+      </header>
+      ${claim.sourceVideoIsPromotional ? '<p class="promotion-source-notice">来源视频标记为推广</p>' : ""}
+      <section class="claim-conclusion" aria-label="原文结论">
+        <span class="claim-field-label">原文结论</span>
+        <p>${escapeHtml(claim.conclusion || "未提及")}</p>
+      </section>
+      <section class="claim-reasons" aria-label="原文理由">
+        <span class="claim-field-label">原文理由</span>
+        ${reasonItems.length ? `<ul>${reasonItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>` : '<p class="claim-muted">文案未提供理由</p>'}
+      </section>
+      ${supplementary.length ? `<dl class="claim-supplementary">${supplementary.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : '<p class="claim-muted claim-supplementary-empty">文案未提供条件、替代做法或价格信息</p>'}
+      <footer class="claim-card-footer">
+        ${tags.length ? `<div class="claim-card-tags" aria-label="观点分类">${tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+        <div class="claim-card-actions">
+          <a class="primary-button small claim-source-action" href="${safeUrl(claim.sourceUrl)}" target="_blank" rel="noreferrer">
+            <span>查看来源</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3 10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></svg>
+          </a>
+          ${deleteButton}
+        </div>
       </footer>
     </article>
   `;
 }
 
+function getTranscriptEdit(videoId) {
+  if (!transcriptEdits.has(videoId)) {
+    transcriptEdits.set(videoId, { draft: null, editing: false, saving: false, message: "", type: "" });
+  }
+  return transcriptEdits.get(videoId);
+}
+
+function renderTranscriptEditor(video) {
+  if (window.DECOR_PUBLIC_LIBRARY) return;
+  const state = video ? getTranscriptEdit(video.id) : null;
+  const editing = Boolean(state?.editing);
+  const transcription = videoTranscriptions.get(video?.id);
+  const fetchButton = document.querySelector("#fetch-transcript");
+  fetchButton.dataset.adminBlocked = String(!video?.detailLoaded || hasVideoTranscript(video) || editing || Boolean(videoExtractions.get(video?.id)?.running));
+  fetchButton.dataset.adminBusy = String(Boolean(transcription?.running));
+  fetchButton.textContent = transcription?.running ? "获取中…" : hasVideoTranscript(video) ? "文案已保存" : video?.transcriptJob?.provider === "local_asr" && video?.transcriptJob?.task_id ? "重试本地转写" : video?.transcriptJob?.task_id ? "续查文案" : "获取文案";
+  const editor = document.querySelector("#transcript-editor");
+  const editButton = document.querySelector("#edit-transcript");
+  const saveButton = document.querySelector("#save-transcript");
+  document.querySelector("#transcript-text").hidden = editing;
+  document.querySelector("#transcript-edit-form").hidden = !editing;
+  editButton.hidden = editing;
+  editButton.dataset.adminBlocked = String(!video?.detailLoaded || Boolean(state?.saving || transcription?.running || videoExtractions.get(video?.id)?.running));
+  saveButton.dataset.adminBlocked = String(!video?.detailLoaded || Boolean(state?.saving) || !state?.draft?.trim());
+  saveButton.textContent = state?.saving ? "保存中…" : "保存文案";
+  document.querySelector("#cancel-transcript-edit").disabled = Boolean(state?.saving);
+  editor.readOnly = !adminSession.authenticated || Boolean(state?.saving);
+  if (editing && editor.value !== state.draft) editor.value = state.draft || "";
+  const message = document.querySelector("#transcript-edit-message");
+  message.textContent = state?.message || transcription?.message || "";
+  message.dataset.type = state?.type || transcription?.type || "";
+  renderDetailExtraction(video);
+  syncAdminActionButtons();
+}
+
+function renderDetailExtraction(video) {
+  if (window.DECOR_PUBLIC_LIBRARY) return;
+  const button = document.querySelector("#detail-extract-video");
+  const message = document.querySelector("#detail-extract-message");
+  const state = video ? videoExtractions.get(video.id) : null;
+  const edit = video ? getTranscriptEdit(video.id) : null;
+  button.dataset.extractVideoId = video?.id || "";
+  button.dataset.adminBlocked = String(!video?.detailLoaded || !hasVideoTranscript(video) || Boolean(edit?.editing || edit?.saving || videoTranscriptions.get(video?.id)?.running));
+  button.dataset.adminBusy = String(Boolean(state?.running));
+  button.textContent = state?.running ? "提取中…" : video?.claimCount > 0 ? "重新提取观点" : "提取观点";
+  message.textContent = state?.message || "";
+  message.dataset.type = state?.type || "";
+}
+
+function startTranscriptEdit() {
+  requireAdminAction();
+  const video = findDetailVideo(selectedVideoId);
+  if (!video?.detailLoaded) return;
+  const state = getTranscriptEdit(video.id);
+  if (state.draft === null) state.draft = video.transcript || "";
+  state.editing = true;
+  state.message = "";
+  renderTranscriptEditor(video);
+  document.querySelector("#transcript-editor").focus();
+}
+
+async function saveTranscriptEdit() {
+  requireAdminAction();
+  const video = findDetailVideo(selectedVideoId);
+  if (!video?.detailLoaded) return;
+  const state = getTranscriptEdit(video.id);
+  if (!state.editing || state.saving || !state.draft?.trim()) return;
+  state.saving = true;
+  state.message = "";
+  renderTranscriptEditor(video);
+  try {
+    const result = await postJson(`${API_BASE}/videos/${video.id}/transcript`, {
+      transcript_text: state.draft,
+      transcript_source: "manual",
+    });
+    const updated = normalizeApiVideo(result.video);
+    const replace = (item) => item.id === video.id ? { ...item, ...updated, claims: item.claims, claimCount: item.claimCount } : item;
+    videos = videos.map(replace);
+    progressVideos = progressVideos.map(replace);
+    state.editing = false;
+    state.draft = null;
+    state.message = `已保存 ${updated.transcriptLength} 字文案。现有知识卡已保留，需要更新时可点击“提取观点”。`;
+    state.type = "ok";
+    await Promise.allSettled([
+      fetchApiJson("/bootstrap").then((payload) => {
+        apiStats = normalizeApiStats(payload.stats || {});
+        sources = payload.sources || sources;
+        videoFacets = payload.video_facets || videoFacets;
+        knowledgeFacets = payload.knowledge?.facets || knowledgeFacets;
+      }),
+      loadProgressSummary(),
+    ]);
+    writeApiCache();
+    renderAll();
+  } catch (error) {
+    state.message = `保存失败：${error.message}`;
+    state.type = "error";
+  } finally {
+    state.saving = false;
+    renderDetail();
+  }
+}
+
+const promotionEdits = new Map();
+
+function renderPromotionEditor(video) {
+  if (window.DECOR_PUBLIC_LIBRARY) return;
+  const state = promotionEdits.get(video?.id);
+  const review = video?.adReview;
+  const manual = review?.source === "manual";
+  const labels = { not_ad: "普通内容", uncertain: "疑似推广", error: "疑似推广", advertising: "推广" };
+  document.querySelector("#promotion-current").textContent = `${labels[review?.decision] || "未识别"}${review?.decision ? manual ? "（手动设置）" : "（自动识别）" : ""}`;
+  const select = document.querySelector("#promotion-decision");
+  select.value = state?.draft ?? (manual ? review.decision : "auto");
+  select.disabled = !adminSession.authenticated || !video?.detailLoaded || Boolean(state?.saving);
+  const button = document.querySelector("#save-promotion");
+  button.dataset.adminBlocked = String(!video?.detailLoaded);
+  button.dataset.adminBusy = String(Boolean(state?.saving));
+  button.textContent = state?.saving ? "保存中…" : "保存状态";
+  document.querySelector("#promotion-message").textContent = state?.message || (manual ? "手动设置优先，后续自动识别不会覆盖。" : "管理员可手动修改；恢复自动识别不会立即发起模型调用。");
+}
+
+async function savePromotionEdit(event) {
+  event.preventDefault();
+  requireAdminAction();
+  const video = findDetailVideo(selectedVideoId);
+  if (!video?.detailLoaded || promotionEdits.get(video.id)?.saving) return;
+  const decision = document.querySelector("#promotion-decision").value;
+  const state = { draft: decision, saving: true, message: "" };
+  promotionEdits.set(video.id, state);
+  renderDetail();
+  let saved = false;
+  try {
+    await postJson(`${API_BASE}/videos/${video.id}/promotion`, { decision });
+    saved = true;
+    state.draft = null;
+    await loadApiData();
+    await Promise.all([loadVideoDetail(video.id), loadKnowledgePage(), loadProgressSummary(), loadProgressPage()]);
+    state.message = decision === "auto" ? "已恢复自动识别；无有效缓存时将在下次获取或保存文案时识别。" : "已保存，知识卡片来源提示已同步。手动设置不会被自动识别覆盖。";
+  } catch (error) {
+    state.message = `${saved ? "状态已保存，但刷新失败，请刷新页面" : "保存失败"}：${error.message}`;
+  } finally {
+    state.saving = false;
+    renderAll();
+  }
+}
+
+document.querySelector("#promotion-form")?.addEventListener("submit", savePromotionEdit);
+document.querySelector("#promotion-decision")?.addEventListener("change", (event) => {
+  if (selectedVideoId) promotionEdits.set(selectedVideoId, { draft: event.target.value, saving: false, message: "" });
+});
+
 function renderDetail() {
   const video = findDetailVideo(selectedVideoId);
+  renderPromotionEditor(video);
+  renderTranscriptEditor(video);
   const detailActions = document.querySelector(".detail-actions");
   if (!video) {
     document.querySelector("#detail-platform").textContent = "暂无视频";
@@ -2154,11 +2712,12 @@ function renderDetail() {
   document.querySelector("#detail-claim-count").textContent = video.claims.length;
   document.querySelector("#detail-status").textContent = reasonLabel ? `${getVideoStatusLabel(video.status)}｜${reasonLabel}` : getVideoStatusLabel(video.status);
   document.querySelector("#detail-link").href = video.sourceUrl;
-  const hasFullTranscript = video.transcript && !video.transcript.includes("未保存");
+  const hasFullTranscript = video.detailLoaded && Boolean(video.transcript?.trim());
   const transcriptFallback = "该视频尚未保存原始文案。";
   document.querySelector("#transcript-text").textContent = [
     `分享链接：${video.shareUrl || "未保存"}`,
     `分享文本：${video.shareText || "未保存"}`,
+    ...(video.adReview?.reason ? ["", `推广识别：${getVideoReasonLabel(video) || "未发现明显推广结构"}`, ...(video.adReview.evidence || []).map((quote) => `依据：${quote}`)] : []),
     "",
     "原始文案：",
     hasFullTranscript ? video.transcript : transcriptFallback,
@@ -2205,33 +2764,27 @@ function getActiveKnowledgeCategoryKey() {
   return getKnowledgeCategoryKey(activeKnowledgeCategory);
 }
 
-function getKnowledgeCategoryLabel(category = activeKnowledgeCategory) {
-  return category?.label || category?.value || "全部观点";
-}
-
-function setKnowledgeFilterExpanded(expanded) {
-  if (!knowledgeLayout || !knowledgeFilterToggle) return;
-  knowledgeLayout.classList.toggle("is-filter-collapsed", !expanded);
-  knowledgeFilterToggle.setAttribute("aria-expanded", String(expanded));
-}
-
-function syncKnowledgeFilterSummary() {
-  if (!knowledgeFilterCurrent) return;
-  knowledgeFilterCurrent.textContent = getKnowledgeCategoryLabel();
-}
-
 function findKnowledgeCategory(type, value) {
   return knowledgeCategoryGroups.flatMap((group) => group.items).find((item) => item.type === type && item.value === value);
 }
 
+function getKnowledgeCategoryCount(category) {
+  if (!knowledgeFacets) return null;
+  if (!category || category.type === "all") return normalizeCount(knowledgeFacets.total) ?? 0;
+  if (category.type === "stageGroup") {
+    return category.stages.reduce((sum, stage) => sum + (normalizeCount(knowledgeFacets.stages[stage]) ?? 0), 0);
+  }
+  const counts = category.type === "stage" ? knowledgeFacets.stages : category.type === "stance" ? knowledgeFacets.stances : knowledgeFacets.tags;
+  return normalizeCount(counts[category.value]) ?? 0;
+}
+
 function renderKnowledgeCategories() {
-  const claims = getAllClaims();
   const activeKey = getActiveKnowledgeCategoryKey();
   const activeGroup = knowledgeCategoryGroups.find((group) => group.title === activeKnowledgeGroupTitle) || knowledgeCategoryGroups[0];
   const groupTabs = knowledgeCategoryGroups
     .map(
       (group) => `
-        <button class="knowledge-group-toggle ${group.title === activeGroup.title ? "active" : ""}" type="button" data-knowledge-group="${escapeAttr(group.title)}">
+        <button class="knowledge-group-toggle ${group.title === activeGroup.title ? "active" : ""}" type="button" aria-pressed="${group.title === activeGroup.title}" data-knowledge-group="${escapeAttr(group.title)}">
           <span>${escapeHtml(group.title)}</span>
           <small>${group.items.length}</small>
         </button>
@@ -2240,38 +2793,28 @@ function renderKnowledgeCategories() {
     .join("");
   const categoryTabs = activeGroup.items
     .map((item) => {
-      const count = claims.filter((claim) => claimMatchesKnowledgeCategory(claim, item)).length;
+      const count = getKnowledgeCategoryCount(item) ?? "…";
       const key = getKnowledgeCategoryKey(item);
       return `
-        <button class="stage-button ${activeKey === key ? "active" : ""}" type="button" data-knowledge-category-type="${escapeAttr(item.type)}" data-knowledge-category-value="${escapeAttr(item.value)}">
-          <span>${count}</span>
-          ${escapeHtml(item.label)}
+        <button class="stage-button ${activeKey === key ? "active" : ""}" type="button" aria-pressed="${activeKey === key}" data-knowledge-category-type="${escapeAttr(item.type)}" data-knowledge-category-value="${escapeAttr(item.value)}">
+          <span class="category-label">${escapeHtml(item.label)}</span>
+          <span class="category-count">${count}</span>
         </button>
       `;
     })
     .join("");
-  document.querySelector("#knowledge-stage-list").innerHTML = `
-    <div class="knowledge-filter-row primary">${groupTabs}</div>
-    <div class="knowledge-filter-row secondary">${categoryTabs}</div>
-  `;
-  syncKnowledgeFilterSummary();
+  document.querySelector("#knowledge-group-list").innerHTML = groupTabs;
+  document.querySelector("#knowledge-stage-list").innerHTML = categoryTabs;
 }
 
 function renderKnowledge() {
-  const query = document.querySelector("#knowledge-query").value.trim().toLowerCase();
-  const claims = getAllClaims().filter((claim) => {
-    const matchesCategory = claimMatchesKnowledgeCategory(claim, activeKnowledgeCategory);
-    const haystack = `${claim.object} ${claim.stance} ${claim.stage} ${claim.tags.join(" ")} ${claim.conclusion} ${claim.reasons.join(" ")} ${claim.creator}`.toLowerCase();
-    return matchesCategory && (!query || haystack.includes(query));
-  });
+  const claims = knowledgeClaims;
 
   document.querySelector("#knowledge-results").innerHTML =
     claims.length > 0
       ? `${claims.map(renderClaimCard).join("")}
         <article class="video-filter-notice">
-          <span>已显示 ${Math.min(knowledgeClaims.length, knowledgePageState.total || knowledgeClaims.length)} / ${
-            knowledgePageState.total || knowledgeClaims.length
-          } 条观点</span>
+          <span>已显示 ${claims.length} / ${knowledgePageState.total} 条观点</span>
           ${
             knowledgePageState.error
               ? `<span>加载失败：${escapeHtml(knowledgePageState.error)}</span>`
@@ -2358,6 +2901,90 @@ function renderDeleted() {
     : `<article class="result-card"><h3>暂无已删除数据</h3><p>当前没有软删除的视频或观点。</p></article>`;
 }
 
+function renderSettings() {
+  const root = document.querySelector("#transcript-settings");
+  if (!root) return;
+  const state = transcriptSettings;
+  const blocked = state.busy || state.loading || !state.provider;
+  const label = state.provider === "local_asr" ? "本地 ASR" : state.provider === "transcriptgenerate" ? "API 转写" : "读取中…";
+  root.setAttribute("aria-busy", String(state.busy || state.loading));
+  root.innerHTML = `
+    <div class="settings-current"><span>当前方式</span><strong>${label}</strong><small>保存后立即生效，并在重启后保留。</small></div>
+    <div class="transcript-provider-grid">
+      <article class="transcript-provider-card ${state.provider === "transcriptgenerate" ? "selected" : ""}">
+        <p class="eyebrow">REMOTE / API</p><h3>API 转写</h3>
+        <p>使用已有配置的 TranscriptGenerate 转写接口与账号额度。无需本机运行识别模型。</p>
+        <button class="primary-button" data-select-transcript-provider="transcriptgenerate" ${adminActionAttributes(blocked || state.provider === "transcriptgenerate")}>${state.provider === "transcriptgenerate" ? "当前已启用" : "切换为 API"}</button>
+      </article>
+      <article class="transcript-provider-card ${state.provider === "local_asr" ? "selected" : ""}">
+        <p class="eyebrow">LOCAL / CPU</p><h3>本地 ASR</h3>
+        <p>使用 SenseVoiceSmall INT8，在本机 CPU 上识别。切换前自动检测依赖、模型加载及实际推理，检测失败不切换。</p>
+        <button class="primary-button" data-select-transcript-provider="local_asr" ${adminActionAttributes(blocked || state.provider === "local_asr")}>${state.provider === "local_asr" ? "当前已启用" : "检测并切换为本地"}</button>
+      </article>
+    </div>
+    <div class="local-asr-health" data-status="${escapeAttr(state.health?.status || "unknown")}">
+      <div><strong>本地服务状态</strong><p>${escapeHtml(state.health?.message || "尚未检测。本地 worker 按需启动，无需单独保持常驻进程。")}</p></div>
+      <button class="primary-button small" id="check-local-asr" ${adminActionAttributes(state.busy || state.loading)}>${state.busy ? "处理中…" : "检测本地服务"}</button>
+    </div>
+    <p class="settings-feedback" id="transcript-settings-message" role="status" data-error="${Boolean(state.error)}">${escapeHtml(state.error || state.message)}</p>
+    <p class="settings-note">${adminSession.authenticated ? "仅影响后续转写；已保存文案不会重录，进行中的任务保持原方式。" : "请先登录管理员，再检测或修改转写方式。"} 本地检测不验证抖音登录与下载权限，也不会调用外部转写服务。未完成的旧 API 任务需先核对，避免重复提交。</p>
+  `;
+}
+
+async function loadTranscriptSettings() {
+  if (transcriptSettings.busy) return;
+  const request = ++transcriptSettingsRequest;
+  transcriptSettings.loading = true;
+  renderSettings();
+  try {
+    const result = await fetchApiJson("/settings/transcription");
+    if (request !== transcriptSettingsRequest) return;
+    transcriptSettings.provider = result.provider;
+    transcriptSettings.error = "";
+  } catch (error) {
+    if (request !== transcriptSettingsRequest) return;
+    transcriptSettings.error = `读取设置失败：${error.message}`;
+  } finally {
+    if (request === transcriptSettingsRequest) {
+      transcriptSettings.loading = false;
+      renderSettings();
+    }
+  }
+}
+
+async function updateTranscriptSettings(provider = null) {
+  if (transcriptSettings.busy || transcriptSettings.loading) return;
+  try { requireAdminAction(); } catch (error) {
+    transcriptSettings.error = error.message;
+    renderSettings();
+    return;
+  }
+  ++transcriptSettingsRequest;
+  transcriptSettings.busy = true;
+  transcriptSettings.error = "";
+  transcriptSettings.message = provider === "transcriptgenerate" ? "正在保存 API 转写方式…" : "正在检测本地 ASR 模型及实际推理，请稍候…";
+  renderSettings();
+  try {
+    const path = provider ? "/settings/transcription" : "/settings/transcription/check-local";
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(provider ? { provider } : {}),
+    });
+    const result = await response.json();
+    if (result.local_health) transcriptSettings.health = result.local_health;
+    if (!provider && "ready" in result) transcriptSettings.health = result;
+    if (result.provider) transcriptSettings.provider = result.provider;
+    if (!response.ok) throw new Error(result.error || result.local_health?.message || result.message || "操作失败，原设置保持不变。");
+    transcriptSettings.message = provider ? "转写方式已保存，后续任务立即生效。" : result.message;
+  } catch (error) {
+    transcriptSettings.error = error.message;
+    transcriptSettings.message = "";
+  } finally {
+    transcriptSettings.busy = false;
+    renderSettings();
+  }
+}
+
 function renderCurrentView() {
   if (activeView === "overview") {
     renderOverview();
@@ -2373,6 +3000,8 @@ function renderCurrentView() {
     renderKnowledge();
   } else if (activeView === "deleted") {
     renderDeleted();
+  } else if (activeView === "settings") {
+    renderSettings();
   }
 }
 
@@ -2383,6 +3012,43 @@ function renderIfActive(...views) {
 }
 
 document.addEventListener("click", (event) => {
+  const copySourceButton = event.target.closest("[data-copy-source-url]");
+  if (copySourceButton) {
+    if (!copySourceButton.disabled) copySourceLink(copySourceButton);
+    return;
+  }
+  const adminAction = event.target.closest("[data-admin-required]");
+  if (adminAction && (!adminSession.authenticated || adminAction.disabled)) {
+    event.preventDefault();
+    return;
+  }
+  const editTranscriptButton = event.target.closest("#edit-transcript");
+  if (editTranscriptButton) {
+    startTranscriptEdit();
+    return;
+  }
+  const cancelTranscriptButton = event.target.closest("#cancel-transcript-edit");
+  if (cancelTranscriptButton) {
+    const video = findDetailVideo(selectedVideoId);
+    if (video) {
+      const state = getTranscriptEdit(video.id);
+      state.editing = false;
+      state.draft = null;
+      state.message = "";
+      renderDetail();
+    }
+    return;
+  }
+  const providerButton = event.target.closest("[data-select-transcript-provider]");
+  if (providerButton) {
+    if (!providerButton.disabled) updateTranscriptSettings(providerButton.dataset.selectTranscriptProvider);
+    return;
+  }
+  const checkLocalButton = event.target.closest("#check-local-asr");
+  if (checkLocalButton) {
+    if (!checkLocalButton.disabled) updateTranscriptSettings();
+    return;
+  }
   const navButton = event.target.closest(".nav-item");
   if (navButton) {
     setView(navButton.dataset.view);
@@ -2460,6 +3126,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const videoClaimsButton = event.target.closest("[data-video-claims-id]");
+  if (videoClaimsButton) {
+    openVideoClaims(videoClaimsButton.dataset.videoClaimsId);
+    return;
+  }
+
   const videoButton = event.target.closest("[data-video-id]");
   if (videoButton) {
     selectedVideoId = videoButton.dataset.videoId;
@@ -2483,20 +3155,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  const knowledgeToggleButton = event.target.closest("#knowledge-filter-toggle");
-  if (knowledgeToggleButton) {
-    const expanded = knowledgeToggleButton.getAttribute("aria-expanded") === "true";
-    setKnowledgeFilterExpanded(!expanded);
-    return;
-  }
-
   const stageButton = event.target.closest(".timeline-card[data-knowledge-stage], [data-knowledge-stage]");
   if (stageButton) {
     const stageName = stageButton.dataset.knowledgeStage;
     activeKnowledgeCategory = { type: "stage", value: stageName, label: stageName };
-    activeKnowledgeGroupTitle = "按流程大类";
+    activeKnowledgeGroupTitle = "按装修阶段";
     loadKnowledgePage();
-    setKnowledgeFilterExpanded(false);
     setView("knowledge");
     return;
   }
@@ -2506,7 +3170,6 @@ document.addEventListener("click", (event) => {
     const groupTitle = knowledgeGroupButton.dataset.knowledgeGroup;
     activeKnowledgeGroupTitle = groupTitle;
     activeKnowledgeCategory = knowledgeCategoryGroups.find((group) => group.title === groupTitle)?.items[0] || findKnowledgeCategory("all", "全部");
-    setKnowledgeFilterExpanded(true);
     renderKnowledgeCategories();
     loadKnowledgePage();
     return;
@@ -2518,7 +3181,6 @@ document.addEventListener("click", (event) => {
       findKnowledgeCategory(categoryButton.dataset.knowledgeCategoryType, categoryButton.dataset.knowledgeCategoryValue) ||
       findKnowledgeCategory("all", "全部");
     loadKnowledgePage();
-    setKnowledgeFilterExpanded(false);
     return;
   }
 
@@ -2555,7 +3217,7 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  const closeIngestButton = event.target.closest("#close-ingest");
+  const closeIngestButton = event.target.closest("#close-ingest, #cancel-ingest");
   if (closeIngestButton) {
     setIngestOpen(false);
     return;
@@ -2572,11 +3234,11 @@ document.addEventListener("click", (event) => {
 
   const updateSourceButton = event.target.closest("[data-update-source-id]");
   if (updateSourceButton) {
-    updateSourceButton.disabled = true;
+    setAdminActionBusy(updateSourceButton, true);
     updateSource(updateSourceButton.dataset.updateSourceId)
       .catch((error) => setSourceMessage(`失败：${error.message}`, "error"))
       .finally(() => {
-        updateSourceButton.disabled = false;
+        setAdminActionBusy(updateSourceButton, false);
       });
     return;
   }
@@ -2595,22 +3257,22 @@ document.addEventListener("click", (event) => {
 
   const douyinLoginButton = event.target.closest("[data-douyin-login-url]");
   if (douyinLoginButton) {
-    douyinLoginButton.disabled = true;
+    setAdminActionBusy(douyinLoginButton, true);
     startDouyinLogin(douyinLoginButton.dataset.douyinLoginUrl)
       .catch((error) => setSourceMessage(`打开登录失败：${error.message}`, "error"))
       .finally(() => {
-        douyinLoginButton.disabled = false;
+        setAdminActionBusy(douyinLoginButton, false);
       });
     return;
   }
 
   const updateAllSourcesButton = event.target.closest("#update-all-sources");
   if (updateAllSourcesButton) {
-    updateAllSourcesButton.disabled = true;
+    setAdminActionBusy(updateAllSourcesButton, true);
     updateAllSources()
       .catch((error) => setSourceMessage(`失败：${error.message}`, "error"))
       .finally(() => {
-        updateAllSourcesButton.disabled = false;
+        setAdminActionBusy(updateAllSourcesButton, false);
       });
     return;
   }
@@ -2626,6 +3288,13 @@ document.addEventListener("click", (event) => {
   if (clearSourceFilterButton) {
     activeSourceFilter = null;
     loadVideoPage();
+    return;
+  }
+
+  const retryVideoPageButton = event.target.closest("#retry-video-page");
+  if (retryVideoPageButton) {
+    retryVideoPageButton.disabled = true;
+    loadVideoPage({ preserveLoaded: true });
     return;
   }
 
@@ -2697,17 +3366,17 @@ document.addEventListener("click", (event) => {
     const videoId = progressRetryButton.dataset.progressRetryVideoId;
     const video = videos.find((item) => item.id === videoId);
     let force = false;
-    progressRetryButton.disabled = true;
+    setAdminActionBusy(progressRetryButton, true);
     if (state === "缺链接") {
       setView("sources");
       setSourceMessage("这条视频缺链接，请先从来源页更新该博主作品。", "warn");
-      progressRetryButton.disabled = false;
+      setAdminActionBusy(progressRetryButton, false);
       return;
     }
     if ((video?.retryCount || 0) >= 3) {
       force = confirm(`该视频已重试 ${video.retryCount} 次，仍可能无法正确提取文案。确定继续从获取文案开始重试吗？`);
       if (!force) {
-        progressRetryButton.disabled = false;
+        setAdminActionBusy(progressRetryButton, false);
         return;
       }
     }
@@ -2721,8 +3390,37 @@ document.addEventListener("click", (event) => {
         setProgressMessage(`重试失败：${error.message}`, "error");
       })
       .finally(() => {
-        progressRetryButton.disabled = false;
+        setAdminActionBusy(progressRetryButton, false);
         progressRetryButton.textContent = "重试";
+      });
+    return;
+  }
+
+  const transcriptButton = event.target.closest("#fetch-transcript");
+  if (transcriptButton) {
+    requireAdminAction();
+    const videoId = selectedVideoId;
+    const video = findDetailVideo(videoId);
+    if (!video?.detailLoaded || hasVideoTranscript(video) || videoTranscriptions.get(videoId)?.running) return;
+    const state = { running: true, message: "正在获取文案，请稍候…", type: "" };
+    videoTranscriptions.set(videoId, state);
+    getTranscriptEdit(videoId).message = "";
+    renderDetail();
+    postJson(`${API_BASE}/videos/${videoId}/transcript/retry`, {})
+      .then(async () => {
+        state.message = "文案已保存。可点击“提取观点”生成知识卡。";
+        state.type = "ok";
+        await loadApiData();
+        await loadVideoDetail(videoId);
+      })
+      .catch((error) => {
+        state.message = `获取未完成：${error.message}`;
+        state.type = "error";
+        if (selectedVideoId !== videoId || activeView !== "detail") alert(state.message);
+      })
+      .finally(() => {
+        state.running = false;
+        renderIfActive("detail", "videos", "progress");
       });
     return;
   }
@@ -2730,24 +3428,47 @@ document.addEventListener("click", (event) => {
   const extractButton = event.target.closest("[data-extract-video-id]");
   if (extractButton) {
     const videoId = extractButton.dataset.extractVideoId;
-    extractButton.disabled = true;
+    if (!videoId || videoExtractions.get(videoId)?.running) return;
+    const state = { running: true, message: "正在提取观点，请稍候…", type: "" };
+    videoExtractions.set(videoId, state);
+    renderIfActive("detail", "videos");
+    setAdminActionBusy(extractButton, true);
     extractButton.textContent = "提取中";
     postJson(`${API_BASE}/videos/${videoId}/extract`, {})
       .then(async (result) => {
-        if (result.status !== "completed") throw new Error(result.status || "extract_failed");
+        if (!["completed", "filtered"].includes(result.status)) throw new Error(result.status || "extract_failed");
+        state.message = result.status === "filtered" ? "本次未提取到可靠知识，已保留原文案。" : `提取完成，保存 ${(result.claims || []).length} 条观点。`;
+        state.type = "ok";
         await loadApiData();
         selectedVideoId = videoId;
+        await loadVideoDetail(videoId);
         renderAll();
         renderDetail();
         renderProgress();
         setView("detail");
       })
       .catch((error) => {
-        extractButton.disabled = false;
-        extractButton.textContent = "提取观点";
-        alert(`提取失败：${error.message}`);
+        state.message = error.message.includes("deepseek_timeout") || error.message.includes("Operation timed out")
+          ? "模型响应超时，文案和已有知识卡已保留。请稍后重试提取观点。"
+          : `提取失败：${error.message}`;
+        state.type = "error";
+        if (activeView !== "detail" || selectedVideoId !== videoId) alert(state.message);
+      })
+      .finally(() => {
+        state.running = false;
+        setAdminActionBusy(extractButton, false);
+        renderIfActive("detail", "videos");
       });
   }
+});
+
+document.querySelector("#transcript-editor")?.addEventListener("input", (event) => {
+  const video = findDetailVideo(selectedVideoId);
+  if (!video) return;
+  const state = getTranscriptEdit(video.id);
+  state.draft = event.target.value;
+  state.message = "";
+  renderTranscriptEditor(video);
 });
 
 document.querySelector("#knowledge-query").addEventListener("input", () => {
@@ -2755,6 +3476,18 @@ document.querySelector("#knowledge-query").addEventListener("input", () => {
   knowledgeSearchTimer = window.setTimeout(() => loadKnowledgePage(), 250);
 });
 document.addEventListener("submit", (event) => {
+  if (event.target.id === "transcript-edit-form") {
+    event.preventDefault();
+    saveTranscriptEdit().catch((error) => {
+      const video = findDetailVideo(selectedVideoId);
+      if (!video) return;
+      const state = getTranscriptEdit(video.id);
+      state.message = error.message;
+      state.type = "error";
+      renderTranscriptEditor(video);
+    });
+    return;
+  }
   if (event.target === adminLoginForm) {
     event.preventDefault();
     submitAdminLogin(adminLoginPassword?.value);
@@ -2762,8 +3495,22 @@ document.addEventListener("submit", (event) => {
   }
   if (event.target !== ingestForm) return;
   event.preventDefault();
-  saveVideoFromForm(ingestSubmitMode).catch((error) => {
+  if (ingestSubmitting) return;
+  ingestSubmitting = true;
+  ingestForm.setAttribute("aria-busy", "true");
+  const submitButton = ingestForm.querySelector("button[type='submit']");
+  const submitLabel = submitButton.querySelector("[data-ingest-submit-label]");
+  setAdminActionBusy(submitButton, true);
+  submitLabel.textContent = "正在采集…";
+  ingestPanel.querySelectorAll("#close-ingest, #cancel-ingest").forEach((button) => { button.disabled = true; });
+  saveVideoFromForm(event.submitter?.dataset.mode || ingestSubmitMode).catch((error) => {
     setIngestMessage(`失败：${error.message}`, "error");
+  }).finally(() => {
+    ingestSubmitting = false;
+    ingestForm.setAttribute("aria-busy", "false");
+    setAdminActionBusy(submitButton, false);
+    submitLabel.textContent = "保存并采集";
+    ingestPanel.querySelectorAll("#close-ingest, #cancel-ingest").forEach((button) => { button.disabled = false; });
   });
 });
 
@@ -2771,6 +3518,26 @@ adminLoginPassword?.addEventListener("input", () => {
   if (adminLoginMessage?.textContent) {
     setAdminLoginMessage();
   }
+});
+
+document.querySelectorAll("dialog").forEach((dialog) => {
+  let startedOutside = false;
+  const isOutside = (event) => {
+    const rect = dialog.getBoundingClientRect();
+    return event.clientX < rect.left || event.clientX > rect.right
+      || event.clientY < rect.top || event.clientY > rect.bottom;
+  };
+  dialog.addEventListener("pointerdown", (event) => {
+    startedOutside = event.button === 0 && event.target === dialog && isOutside(event);
+  });
+  dialog.addEventListener("pointercancel", () => { startedOutside = false; });
+  dialog.addEventListener("close", () => { startedOutside = false; });
+  dialog.addEventListener("click", (event) => {
+    // Require both ends outside so selecting or dragging content never dismisses it.
+    const dismiss = startedOutside && event.target === dialog && isOutside(event);
+    startedOutside = false;
+    if (dismiss) dialog.close("cancel");
+  });
 });
 
 document.addEventListener("click", (event) => {

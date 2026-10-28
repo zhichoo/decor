@@ -1,11 +1,23 @@
 {
+  "HOST": "127.0.0.1",
+  "PORT": 4189,
+  "PUBLIC_READ_ONLY": false,
   "DATABASE_URL": "host=127.0.0.1 port=5432 dbname=decor user=decor password=change-me sslmode=disable connect_timeout=5",
   "DEEPSEEK_API_KEY": "",
-  "DEEPSEEK_BASE_URL": "https://ldapi.xmofficial.top/v1",
-  "DEEPSEEK_MODEL": "deepseek-v4-pro",
+  "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+  "DEEPSEEK_MODEL": "deepseek-flash",
+  "DEEPSEEK_THINKING": "disabled",
+  "DEEPSEEK_TIMEOUT_SECONDS": 300,
+  "DEEPSEEK_CONNECT_TIMEOUT_SECONDS": 15,
+  "DEEPSEEK_MAX_RETRIES": 1,
   "TRANSCRIPTGENERATE_TOKEN": "",
   "TRANSCRIPTGENERATE_EMAIL": "",
   "TRANSCRIPTGENERATE_PASSWORD": "",
   "TRANSCRIPT_QUEUE_DELAY_SECONDS": "120",
-  "AUTO_QUEUE_BATCH_LIMIT": "20"
+  "AUTO_QUEUE_BATCH_LIMIT": "20",
+  "TRANSCRIPT_POLL_INTERVAL_SECONDS": 4,
+  "TRANSCRIPT_MAX_POLLS": 150,
+  "TRANSCRIPTGENERATE_ACCOUNTS": [],
+  "TRANSCRIPT_PROVIDER": "local_asr",
+  "LOCAL_ASR_THREADS": 3
 }

@@ -1,0 +1,78 @@
+name: decor-deploy
+services:
+  app:
+    image: ${DECOR_IMAGE:-decor:local}
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${DECOR_BIND:-127.0.0.1}:${DECOR_PORT:-4189}:4189"
+    environment:
+      DATABASE_URL: "postgresql://decor:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}@db:5432/decor?connect_timeout=5"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.docker}
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-false}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      DEEPSEEK_THINKING: disabled
+      TRANSCRIPT_PROVIDER: ${TRANSCRIPT_PROVIDER:-local_asr}
+      TRANSCRIPTGENERATE_TOKEN: ${TRANSCRIPTGENERATE_TOKEN:-}
+      TRANSCRIPTGENERATE_EMAIL: ${TRANSCRIPTGENERATE_EMAIL:-}
+      TRANSCRIPTGENERATE_PASSWORD: ${TRANSCRIPTGENERATE_PASSWORD:-}
+      LOCAL_ASR_THREADS: ${LOCAL_ASR_THREADS:-3}
+      LOCAL_ASR_DOWNLOAD_BASE: ${LOCAL_ASR_DOWNLOAD_BASE:-https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main}
+    volumes:
+      - app-runtime:/app/.runtime
+      - browser-profile:/app/backend/.browser-profile
+    shm_size: 1gb
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: decor
+      POSTGRES_USER: decor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decor -d decor"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  public:
+    profiles: [public]
+    image: ${DECOR_IMAGE:-decor:local}
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DECOR_PUBLIC_PORT:-4190}:4189"
+    environment:
+      DATABASE_URL: "postgresql://decor:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}@db:5432/decor?connect_timeout=5"
+      PUBLIC_READ_ONLY: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  postgres-data:
+  app-runtime:
+  browser-profile:
