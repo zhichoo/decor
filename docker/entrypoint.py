@@ -25,7 +25,7 @@ def main():
             if attempt == 29:
                 raise RuntimeError("Database unavailable; check deployment configuration") from None
             time.sleep(2)
-    for script in ("migrate_transcript_jobs.py", "init_db.py"):
+    for script in ("migrate_transcript_jobs.py", "migrate_claim_context.py", "init_db.py"):
         subprocess.run([sys.executable, str(ROOT / "scripts" / script)], check=True)
     os.execvp("xvfb-run", ["xvfb-run", "-a", sys.executable, str(ROOT / "backend/server.py")])
 

@@ -64,7 +64,7 @@ class DeploymentTests(unittest.TestCase):
              patch.object(entrypoint.os, "umask"):
             entrypoint.main()
             connect.assert_called_once()
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 3)
             execute.assert_called_once()
             self.assertEqual(execute.call_args.args[0], "xvfb-run")
 

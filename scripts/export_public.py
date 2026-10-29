@@ -25,7 +25,8 @@ from init_db import database_url
 VIDEO_FIELDS = ("id", "source_id", "platform", "creator", "title", "published_at", "status",
                 "created_at", "updated_at", "transcript_created_at")
 CLAIM_FIELDS = ("id", "video_id", "object_name", "stance", "process_stage", "space_tags", "topic_tags",
-                "original_conclusion", "original_reasons", "conditions", "alternatives", "price_info", "created_at")
+                "original_conclusion", "original_reasons", "conditions", "alternatives", "price_info", "created_at",
+                "author_stance", "content_type", "source_quotes")
 SOURCE_FIELDS = ("id", "platform", "name", "status", "created_at")
 PUBLIC_TAGS = ("厨房", "卫生间", "客厅", "卧室", "阳台", "全屋", "预算", "避坑", "环保", "材料",
                "品牌", "维修", "照明", "家电", "五金", "全屋定制", "家具", "软装", "厨电", "未提及")
@@ -79,7 +80,7 @@ def make_snapshot(source_rows, video_rows, claim_rows, published_at=None):
     for row in active_claims:
         video = active_videos[row["video_id"]]
         item = {key: row.get(key) for key in CLAIM_FIELDS}
-        for field in ("space_tags", "topic_tags", "original_reasons", "alternatives"):
+        for field in ("space_tags", "topic_tags", "original_reasons", "alternatives", "source_quotes"):
             item[field] = item[field] or []
         item.update(source_video_url=public_url(video.get("source_url")), video_title=video["title"],
                     creator=video["creator"], platform=video["platform"],
@@ -99,6 +100,8 @@ def make_snapshot(source_rows, video_rows, claim_rows, published_at=None):
     knowledge_facets = {
         "total": len(claims), "stages": dict(Counter(c["process_stage"] for c in claims)),
         "stances": dict(Counter(c["stance"] for c in claims)),
+        "author_stances": dict(Counter(c["author_stance"] or {"明确推荐": "赞成", "明确不推荐": "反对"}.get(c["stance"], "未明确") for c in claims)),
+        "content_types": dict(Counter(c["content_type"] or "旧版未分类" for c in claims)),
         "tags": {tag: sum(tag in c["space_tags"] or tag in c["topic_tags"] or tag in (c["process_stage"] or "")
                           for c in claims) for tag in tags},
     }

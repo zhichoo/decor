@@ -137,6 +137,7 @@ def start():
     database_up()
     python_ready()
     run([PYTHON, ROOT / 'scripts' / 'migrate_transcript_jobs.py'], env=app_env(config))
+    run([PYTHON, ROOT / 'scripts' / 'migrate_claim_context.py'], env=app_env(config))
     run([PYTHON, ROOT / 'scripts' / 'init_db.py'], env=app_env(config))
     state = read_state()
     if process_running(state):

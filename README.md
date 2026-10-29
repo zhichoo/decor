@@ -37,6 +37,8 @@ cd decor
 
 ## 本地启动
 
+`dev0.1` 保留第一版；`dev0.2` 开发来源观点结构与证据展示，详见 [观点结构说明](docs/claim-context.md)。新结构区分作者态度与内容类型，不为缺失背景补写适用条件；原文引句仅供核对，不代表事实核验。旧卡片保持原数据，不自动重提取。
+
 需要 Docker Desktop、Python 3.12 或更新版本；推荐安装 [uv](https://docs.astral.sh/uv/)。抖音采集还需要本机 Google Chrome。
 
 ```bash

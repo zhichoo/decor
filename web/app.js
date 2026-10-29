@@ -46,7 +46,7 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
-const API_CACHE_KEY = `zhuangxiuApiSnapshot:v6${window.DECOR_PUBLIC_LIBRARY ? `:${window.DECOR_PUBLIC_LIBRARY.snapshot}` : ""}`;
+const API_CACHE_KEY = `zhuangxiuApiSnapshot:v7${window.DECOR_PUBLIC_LIBRARY ? `:${window.DECOR_PUBLIC_LIBRARY.snapshot}` : ""}`;
 const API_CACHE_MAX_AGE = 10 * 60 * 1000;
 
 const fallbackVideos = [];
@@ -70,8 +70,12 @@ const knowledgeCategoryGroups = [
     items: ["预算", "避坑", "环保", "材料", "品牌", "维修", "照明", "家电"].map((value) => ({ type: "tag", value, label: value, meta: "主题标签" })),
   },
   {
-    title: "按态度",
-    items: ["明确推荐", "明确不推荐", "有条件", "价格建议", "未明确"].map((value) => ({ type: "stance", value, label: value, meta: "观点态度" })),
+    title: "按作者态度",
+    items: ["赞成", "反对", "中性陈述", "未明确"].map((value) => ({ type: "authorStance", value, label: value === "未明确" ? "态度未明确" : `作者${value}`, meta: "来源态度，非系统评级" })),
+  },
+  {
+    title: "按内容类型",
+    items: ["选购建议", "施工做法", "验收要求", "价格信息", "个人体验", "中性说明", "其他", "旧版未分类"].map((value) => ({ type: "contentType", value, label: value, meta: "观点主要类型" })),
   },
 ];
 const viewTitles = {
@@ -269,6 +273,10 @@ function normalizeApiClaim(claim) {
     sourceVideoIsPromotional: Boolean(claim.source_video_is_promotional),
     object: claim.object_name,
     stance: claim.stance,
+    authorStance: claim.author_stance || ({ "明确推荐": "赞成", "明确不推荐": "反对" }[claim.stance] || "未明确"),
+    contentType: claim.content_type || "旧版未分类",
+    sourceQuotes: Array.isArray(claim.source_quotes) ? claim.source_quotes : [],
+    legacyContext: !claim.author_stance || !claim.content_type,
     stage: claim.process_stage,
     tags: [...(claim.space_tags || []), ...(claim.topic_tags || [])].filter((tag) => tag && tag !== "未提及"),
     conclusion: claim.original_conclusion,
@@ -754,6 +762,10 @@ function getKnowledgeApiParams(offset = 0) {
     params.tag = activeKnowledgeCategory.value;
   } else if (activeKnowledgeCategory.type === "stance") {
     params.stance = activeKnowledgeCategory.value;
+  } else if (activeKnowledgeCategory.type === "authorStance") {
+    params.author_stance = activeKnowledgeCategory.value;
+  } else if (activeKnowledgeCategory.type === "contentType") {
+    params.content_type = activeKnowledgeCategory.value;
   } else if (activeKnowledgeCategory.type === "stage") {
     params.stage = activeKnowledgeCategory.value;
   } else if (activeKnowledgeCategory.type === "stageGroup" && activeKnowledgeCategory.stages?.length) {
@@ -2492,6 +2504,9 @@ function renderClaimCard(claim, { allowDelete = true } = {}) {
     ["价格信息", claim.priceInfo],
   ].filter(([, value]) => value && String(value).trim() !== "未提及");
   const tags = [...new Set([claim.stage, ...(claim.tags || [])].filter((tag) => tag && tag !== "未提及"))];
+  const stanceLabel = claim.authorStance === "未明确" ? "作者态度未明确" : `作者${claim.authorStance || "态度未明确"}`;
+  const hasConditions = claim.conditions && claim.conditions.trim() !== "未提及";
+  const quotes = (claim.sourceQuotes || []).filter((quote) => typeof quote === "string" && quote.trim());
   const deleteButton =
     allowDelete && adminSession.authenticated && claim.id
       ? `<button class="primary-button small claim-delete-action" type="button" data-delete-claim-id="${escapeAttr(claim.id)}" data-delete-claim-video-id="${escapeAttr(claim.videoId || "")}" aria-label="删除观点：${escapeAttr(claim.object)}">
@@ -2503,18 +2518,20 @@ function renderClaimCard(claim, { allowDelete = true } = {}) {
     <article class="result-card claim-card">
       <header class="claim-card-heading">
         <h3>${escapeHtml(claim.object)}</h3>
-        <span class="status ${claim.stance.includes("不推荐") ? "failed" : claim.stance.includes("推荐") ? "done" : ""}">${escapeHtml(claim.stance)}</span>
+        <span class="claim-author-stance">${escapeHtml(stanceLabel)}</span>
       </header>
+      <div class="claim-context-meta"><span>${escapeHtml(claim.contentType || "旧版未分类")}</span>${!hasConditions ? '<span>适用范围未说明</span>' : ""}</div>
       ${claim.sourceVideoIsPromotional ? '<p class="promotion-source-notice">来源视频标记为推广</p>' : ""}
-      <section class="claim-conclusion" aria-label="原文结论">
-        <span class="claim-field-label">原文结论</span>
+      <section class="claim-conclusion" aria-label="来源观点">
+        <span class="claim-field-label">来源观点</span>
         <p>${escapeHtml(claim.conclusion || "未提及")}</p>
       </section>
-      <section class="claim-reasons" aria-label="原文理由">
-        <span class="claim-field-label">原文理由</span>
+      <section class="claim-reasons" aria-label="作者给出的理由">
+        <span class="claim-field-label">作者给出的理由</span>
         ${reasonItems.length ? `<ul>${reasonItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>` : '<p class="claim-muted">文案未提供理由</p>'}
       </section>
-      ${supplementary.length ? `<dl class="claim-supplementary">${supplementary.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : '<p class="claim-muted claim-supplementary-empty">文案未提供条件、替代做法或价格信息</p>'}
+      ${supplementary.length ? `<dl class="claim-supplementary">${supplementary.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
+      ${quotes.length ? `<details class="claim-evidence"><summary>查看原文引句 · ${quotes.length} 段</summary><p>引句用于核对作者说法，不代表已通过事实核验。</p>${quotes.map((quote) => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</details>` : '<p class="claim-evidence-missing">旧版提取，暂缺卡片级引句；可查看来源核对。</p>'}
       <footer class="claim-card-footer">
         ${tags.length ? `<div class="claim-card-tags" aria-label="观点分类">${tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
         <div class="claim-card-actions">
@@ -2753,6 +2770,8 @@ function claimMatchesKnowledgeCategory(claim, category) {
   if (category.type === "stageGroup") return category.stages.includes(claim.stage);
   if (category.type === "tag") return claim.tags.includes(category.value) || claim.stage.includes(category.value);
   if (category.type === "stance") return claim.stance === category.value;
+  if (category.type === "authorStance") return claim.authorStance === category.value;
+  if (category.type === "contentType") return claim.contentType === category.value;
   return true;
 }
 
@@ -2774,8 +2793,9 @@ function getKnowledgeCategoryCount(category) {
   if (category.type === "stageGroup") {
     return category.stages.reduce((sum, stage) => sum + (normalizeCount(knowledgeFacets.stages[stage]) ?? 0), 0);
   }
-  const counts = category.type === "stage" ? knowledgeFacets.stages : category.type === "stance" ? knowledgeFacets.stances : knowledgeFacets.tags;
-  return normalizeCount(counts[category.value]) ?? 0;
+  const counts = category.type === "stage" ? knowledgeFacets.stages : category.type === "stance" ? knowledgeFacets.stances
+    : category.type === "authorStance" ? knowledgeFacets.author_stances : category.type === "contentType" ? knowledgeFacets.content_types : knowledgeFacets.tags;
+  return normalizeCount(counts?.[category.value]) ?? 0;
 }
 
 function renderKnowledgeCategories() {

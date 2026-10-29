@@ -148,6 +148,9 @@ def main():
             execute(cur, "ALTER TABLE videos ADD COLUMN IF NOT EXISTS transcript_job jsonb")
             execute(cur, "ALTER TABLE videos ADD COLUMN IF NOT EXISTS ad_review jsonb")
             execute(cur, "ALTER TABLE videos ADD COLUMN IF NOT EXISTS ad_review_override jsonb")
+            execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS author_stance text")
+            execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS content_type text")
+            execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS source_quotes jsonb")
             add_soft_delete_columns(cur)
 
             execute(cur, "CREATE EXTENSION IF NOT EXISTS pg_trgm")

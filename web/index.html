@@ -7,7 +7,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="./assets/icons/favicon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20261028-public-deploy" />
+    <link rel="stylesheet" href="./styles.css?v=20261029-claim-context" />
   </head>
   <body>
     <div class="app-shell">
@@ -262,7 +262,7 @@
               <div class="detail-claims-heading">
                 <div>
                   <h2>提取观点</h2>
-                  <p>仅保留文案中有依据的观点。</p>
+                  <p class="claim-library-note">来源观点不等于事实核验或针对你家的建议；未说明条件不代表普遍适用。</p>
                 </div>
                 <div class="detail-extract-actions">
                   <button class="primary-button small red" id="detail-extract-video" type="button" data-admin-required data-admin-blocked="true" disabled>提取观点</button>
@@ -284,6 +284,7 @@
               <div id="knowledge-stage-list" class="knowledge-filter-row secondary" aria-label="分类选项"></div>
             </nav>
             <section class="knowledge-result-panel">
+              <p class="claim-library-note">这里记录作者的主张，不是系统推荐；未说明条件不代表普遍适用。</p>
               <div class="search-results" id="knowledge-results"></div>
             </section>
           </div>
@@ -329,6 +330,7 @@
         <div>
           <h2 id="video-claims-dialog-title">视频观点</h2>
           <p id="video-claims-dialog-name"></p>
+          <p class="claim-library-note">作者态度并非系统评级，原文引句不代表事实核验。</p>
         </div>
         <form method="dialog">
           <button class="icon-button quiet" type="submit" aria-label="关闭观点浮窗" title="关闭" autofocus>×</button>
@@ -354,6 +356,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20261028-public-deploy"></script>
+    <script src="./app.js?v=20261029-claim-context"></script>
   </body>
 </html>

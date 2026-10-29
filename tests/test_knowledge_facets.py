@@ -119,6 +119,8 @@ class KnowledgeFacetsTests(unittest.TestCase):
             "total": len(active),
             "stages": dict(Counter(card["stage"] for card in active)),
             "stances": dict(Counter(card["stance"] for card in active)),
+            "author_stances": dict(Counter(self.server.LEGACY_AUTHOR_STANCES.get(card["stance"], "未明确") for card in active)),
+            "content_types": {"旧版未分类": len(active)} if active else {},
             "tags": {
                 tag: sum(tag in card["spaces"] or tag in card["topics"] or tag in card["stage"]
                          for card in active)
@@ -230,7 +232,7 @@ class KnowledgeFacetsTests(unittest.TestCase):
 
     def test_empty_library_has_zero_counts_and_keeps_all_tag_candidates(self):
         self.conn.execute("UPDATE claims SET deleted_at = 10")
-        expected = {"total": 0, "stages": {}, "stances": {},
+        expected = {"total": 0, "stages": {}, "stances": {}, "author_stances": {}, "content_types": {},
                     "tags": dict.fromkeys(self.expected_facets()["tags"], 0)}
         payload = self.get_payload()
         self.assertEqual(payload["facets"], expected)

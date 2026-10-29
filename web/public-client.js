@@ -73,12 +73,16 @@
         const stage = params.get("stage");
         const tag = params.get("tag");
         const stance = params.get("stance");
+        const authorStance = params.get("author_stance");
+        const contentType = params.get("content_type");
         const query = params.get("q");
         const items = data.claims.filter((claim) =>
           (!stages.length ? !stage || claim.process_stage === stage : stages.includes(claim.process_stage)) &&
           (!tag || (claim.space_tags || []).includes(tag) || (claim.topic_tags || []).includes(tag)
             || (claim.process_stage || "").includes(tag) || claim.stance === tag) &&
           (!stance || claim.stance === stance) &&
+          (!authorStance || (claim.author_stance || ({ "明确推荐": "赞成", "明确不推荐": "反对" }[claim.stance] || "未明确")) === authorStance) &&
+          (!contentType || (claim.content_type || "旧版未分类") === contentType) &&
           (!query || contains([claim.object_name, claim.original_conclusion, claim.conditions,
             ...(claim.original_reasons || [])].join(" "), query)));
         result = { ...page(items, params, "claims", 50), facets: data.knowledge_facets };

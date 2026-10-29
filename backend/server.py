@@ -50,7 +50,7 @@ def load_local_config():
 
 load_local_config()
 
-PROMPT_VERSION = "extract_claims_v5_grounded_written"
+PROMPT_VERSION = "extract_claims_v6_attributed_context"
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_GROUP = os.environ.get("DEEPSEEK_GROUP", "").strip()
@@ -189,6 +189,14 @@ TAGS = {
     ],
     "stance": ["明确推荐", "明确不推荐", "有条件", "价格建议", "未明确"],
 }
+
+AUTHOR_STANCES = ("赞成", "反对", "中性陈述", "未明确")
+CONTENT_TYPES = ("选购建议", "施工做法", "验收要求", "价格信息", "个人体验", "中性说明", "其他")
+LEGACY_AUTHOR_STANCES = {"明确推荐": "赞成", "明确不推荐": "反对"}
+
+
+def author_stance_sql():
+    return "COALESCE(author_stance, CASE stance WHEN '明确推荐' THEN '赞成' WHEN '明确不推荐' THEN '反对' ELSE '未明确' END)"
 
 
 PG_DSN = os.environ.get("DATABASE_URL", "").strip()
@@ -596,9 +604,12 @@ def database_readiness():
                    AND to_regclass('public.extraction_runs') IS NOT NULL
                    AND EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_schema='public' AND table_name='videos'
-                                 AND column_name='transcript_job' AND data_type='jsonb') AS ready
+                                 AND column_name='transcript_job' AND data_type='jsonb')
+                   AND (SELECT COUNT(*) FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='claims'
+                          AND column_name IN ('author_stance', 'content_type', 'source_quotes')) = 3 AS ready
             """).fetchone()["ready"]
-        return bool(ready), "" if ready else "数据库尚未初始化或文案任务迁移未完成"
+        return bool(ready), "" if ready else "数据库尚未初始化或兼容迁移未完成"
     except Exception:
         return False, "数据库暂不可用"
 
@@ -611,6 +622,9 @@ def row_to_claim(row, source_video=None):
         "extraction_run_id": row["extraction_run_id"],
         "object_name": row["object_name"],
         "stance": row["stance"],
+        "author_stance": row.get("author_stance"),
+        "content_type": row.get("content_type"),
+        "source_quotes": json_loads(row.get("source_quotes"), []),
         "process_stage": row["process_stage"],
         "space_tags": json_loads(row["space_tags"], []),
         "topic_tags": json_loads(row["topic_tags"], []),
@@ -654,7 +668,9 @@ def row_to_source(row):
 def build_extract_prompt(video):
     taxonomy = {
         "process_stages": PROCESS_STAGES,
-        "tags": TAGS,
+        "tags": {key: value for key, value in TAGS.items() if key != "stance"},
+        "author_stances": AUTHOR_STANCES,
+        "content_types": CONTENT_TYPES,
         "output_schema": {
             "video_summary": {
                 "title": "string",
@@ -668,7 +684,8 @@ def build_extract_prompt(video):
             "claims": [
                 {
                     "object_name": "string",
-                    "stance": "明确推荐|明确不推荐|有条件|价格建议|未明确",
+                    "author_stance": "赞成|反对|中性陈述|未明确 (仅指作者态度，不是系统评级)",
+                    "content_type": "选购建议|施工做法|验收要求|价格信息|个人体验|中性说明|其他",
                     "process_stage": "one of process_stages",
                     "space_tags": ["one or more from space_tags"],
                     "topic_tags": ["one or more from topic_tags"],
@@ -774,7 +791,23 @@ def build_extract_prompt(video):
         }
     }
 
-    return f"""你是装修视频文案结构化提取器。
+    # Keep examples aligned with the current schema; legacy stance stays a storage compatibility field.
+    for example in (few_shot_example, promotion_only_example, speech_unclear_example, written_example):
+        for claim in example["output"]["claims"]:
+            legacy = claim.pop("stance", "未明确")
+            claim["author_stance"] = LEGACY_AUTHOR_STANCES.get(legacy, "中性陈述")
+            claim["content_type"] = "价格信息" if legacy == "价格建议" else "施工做法"
+
+    context_example = {
+        "input": "我家无主灯花了不少钱，我用着也不顺手，不建议做。",
+        "claim": {"object_name": "无主灯设计", "author_stance": "反对", "content_type": "个人体验",
+                  "original_conclusion": "作者因自家无主灯投入较多、使用不顺手而不建议采用。",
+                  "original_reasons": ["自家投入较多，使用不顺手"], "conditions": "未提及",
+                  "source_quotes": ["我家无主灯花了不少钱，我用着也不顺手，不建议做。"]},
+        "boundary": "不能补写户型、地域、预算门槛、风格或不好用的具体原因；不能写成无主灯普遍不好用。",
+    }
+
+    return f"""你是装修视频的来源观点提取器，不是装修决策顾问或事实核验员。
 
 核心规则：
 1. 只能依据输入文案原文提取信息，禁止补充、推断、扩写、改写为新建议。
@@ -803,6 +836,14 @@ def build_extract_prompt(video):
 24. source_quotes 之外的所有字段必须使用简洁书面语，尤其 original_reasons，不可复制口播段落。把“真解乏得劲儿”整理为“休息舒适、缓解疲劳”；把“往屁股上崩马桶水”整理为“水花飞溅”；删除“内行人的选择”等身份宣传。只有原文引句 source_quotes 保留口语原貌。
 25. 不得把作者的一次使用体验扩大为普遍禁忌或追加新建议。例如原文只说自家推拉门不常关闭，可记录“不常关闭时利用率低”，不得加“选择更简单方式”；原文只说极简风格显乱，不得编造“适合高度自律的家庭”。conditions 没有明确依据时填“未提及”。
 26. 原文的态度、范围和疑问要保留，缺少原因就 original_reasons=[]，不要替作者解释。输出前逐个检查结论、理由、条件和价格，删除任何没有引句支持的新增信息。
+27. author_stance 只记录作者赞成、反对、中性陈述或未明确；content_type 单独记录主要内容类型。价格信息和有条件不是态度方向。单纯记录做法、现象或对比时不要强制推荐/不推荐。
+28. 不要求补齐户型、地域、预算、风格、家庭成员等维度，也不要为缺失维度生成占位内容。缺少条件不应单独成为过滤理由；conditions 没有明确适用条件时填“未提及”，不能写“适合所有家庭”。
+29. 自家、一次施工、个人感受、相对比较等范围必须保留在结论中；作者说“贵”“不好用”仅记录为作者评价，不改成已验证事实。背景不自动等于适用限制，身处南方不能自动改成“仅适用南方”。
+30. 一条结论对应一个方向及其条件；“预算有限选A，更重视耐用选B”应拆开，不能推导“A不耐用”或“B不适合低预算”。不要推导反命题，不生成个性化推荐分数或系统适用性结论。
+31. 未知就是未知。只记录已说出的信息，不另加“局限性分析”或判断前核对清单；这属于独立任务，不能混进原始观点。
+
+缺少背景时的来源归属示例（不要求文案提供完整条件）：
+{json_dumps(context_example)}
 
 去口头禅示例（保留有依据的具体信息）：
 输入文案：{written_example["input"]}
@@ -1097,6 +1138,9 @@ def numeric_evidence_values(text):
 
 
 def claim_quality_error(claim, transcript_text=None, require_evidence=False):
+    if "author_stance" in claim or "content_type" in claim:
+        if claim.get("author_stance") not in AUTHOR_STANCES or claim.get("content_type") not in CONTENT_TYPES:
+            return "invalid_claim_context"
     for name in ("object_name", "original_conclusion", "conditions", "price_info"):
         if name in claim and not isinstance(claim[name], (str, type(None))):
             return "invalid_claim_field"
@@ -1122,8 +1166,7 @@ def claim_quality_error(claim, transcript_text=None, require_evidence=False):
         quotes = claim.get("source_quotes")
         if not isinstance(quotes, list) or not quotes or len(quotes) > 3 or any(not isinstance(q, str) for q in quotes):
             return "missing_source_evidence"
-        source = evidence_text(transcript_text)
-        if any(len(evidence_text(q)) < 6 or evidence_text(q) not in source for q in quotes):
+        if any(len(evidence_text(q)) < 6 or q not in (transcript_text or "") for q in quotes):
             return "unsupported_source_evidence"
         detail = " ".join([body, normalize_text_value(claim.get("price_info")), *normalize_list_value(claim.get("alternatives"))])
         source_numbers = numeric_evidence_values(transcript_text)
@@ -1143,6 +1186,9 @@ def sanitize_claims(claims, transcript_text=None, require_evidence=False):
         if quality_error:
             dropped.append({"reason": quality_error, "object_name": claim.get("object_name")})
             continue
+        if claim.get("author_stance"):
+            # Older clients and the baseline constraint still consume legacy stance.
+            claim["stance"] = {"赞成": "明确推荐", "反对": "明确不推荐"}.get(claim["author_stance"], "未明确")
         if claim_is_all_unmentioned(claim):
             dropped.append({"reason": "all_unmentioned", "object_name": claim.get("object_name")})
             continue
@@ -2803,6 +2849,9 @@ def insert_claims(conn, video, run_id, claims):
             "extraction_run_id": run_id,
             "object_name": claim.get("object_name") or "未提及",
             "stance": claim.get("stance") or "未明确",
+            "author_stance": claim.get("author_stance"),
+            "content_type": claim.get("content_type"),
+            "source_quotes": claim.get("source_quotes") or [],
             "process_stage": claim.get("process_stage") or "待人工分类",
             "space_tags": claim.get("space_tags") or ["未提及"],
             "topic_tags": claim.get("topic_tags") or ["未提及"],
@@ -2817,10 +2866,10 @@ def insert_claims(conn, video, run_id, claims):
         conn.execute(
             """
             INSERT INTO claims (
-              id, video_id, extraction_run_id, object_name, stance, process_stage,
+              id, video_id, extraction_run_id, object_name, stance, author_stance, content_type, source_quotes, process_stage,
               space_tags, topic_tags, original_conclusion, original_reasons,
               conditions, alternatives, price_info, source_video_url, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 item["id"],
@@ -2828,6 +2877,9 @@ def insert_claims(conn, video, run_id, claims):
                 item["extraction_run_id"],
                 item["object_name"],
                 item["stance"],
+                item["author_stance"],
+                item["content_type"],
+                Json(item["source_quotes"]),
                 item["process_stage"],
                 jsonb_value(item["space_tags"], []),
                 jsonb_value(item["topic_tags"], []),
@@ -3241,9 +3293,10 @@ def fetch_knowledge_facets(conn):
     # Facets always describe the whole active library, independent of page/search filters.
     tags = sorted(set(TAGS["space_tags"] + TAGS["topic_tags"]))
     rows = conn.execute(
-        """
+        f"""
         WITH active_claims AS MATERIALIZED (
-          SELECT id, process_stage, stance, space_tags, topic_tags
+          SELECT id, process_stage, stance, {author_stance_sql()} AS author_stance,
+                 COALESCE(content_type, '旧版未分类') AS content_type, space_tags, topic_tags
           FROM claims
           WHERE deleted_at IS NULL
         )
@@ -3252,6 +3305,10 @@ def fetch_knowledge_facets(conn):
         SELECT 'stages', process_stage, COUNT(*) FROM active_claims GROUP BY process_stage
         UNION ALL
         SELECT 'stances', stance, COUNT(*) FROM active_claims GROUP BY stance
+        UNION ALL
+        SELECT 'author_stances', author_stance, COUNT(*) FROM active_claims GROUP BY author_stance
+        UNION ALL
+        SELECT 'content_types', content_type, COUNT(*) FROM active_claims GROUP BY content_type
         UNION ALL
         SELECT 'tags', candidate.tag, COUNT(c.id)
         FROM unnest(%s::text[]) AS candidate(tag)
@@ -3263,7 +3320,7 @@ def fetch_knowledge_facets(conn):
         """,
         (tags,),
     ).fetchall()
-    facets = {"total": 0, "stages": {}, "stances": {}, "tags": {}}
+    facets = {"total": 0, "stages": {}, "stances": {}, "author_stances": {}, "content_types": {}, "tags": {}}
     for row in rows:
         count = int(row["count"])
         if row["facet"] == "total":
@@ -3281,6 +3338,8 @@ def fetch_knowledge_page(conn, query=None, limit=DEFAULT_KNOWLEDGE_LIMIT, offset
     stages = [item.strip() for item in (query.get("stages") or [""])[0].split(",") if item.strip()]
     tag = (query.get("tag") or [""])[0]
     stance = (query.get("stance") or [""])[0]
+    author_stance = (query.get("author_stance") or [""])[0]
+    content_type = (query.get("content_type") or [""])[0]
     q = (query.get("q") or [""])[0]
     if stages:
         clauses.append("process_stage = ANY(%s)")
@@ -3295,6 +3354,12 @@ def fetch_knowledge_page(conn, query=None, limit=DEFAULT_KNOWLEDGE_LIMIT, offset
     if stance:
         clauses.append("stance = %s")
         params.append(stance)
+    if author_stance:
+        clauses.append(f"{author_stance_sql()} = %s")
+        params.append(author_stance)
+    if content_type:
+        clauses.append("COALESCE(content_type, '旧版未分类') = %s")
+        params.append(content_type)
     if q:
         clauses.append(
             "(COALESCE(object_name, '') || ' ' || COALESCE(original_conclusion, '') || ' ' || COALESCE(conditions, '') || ' ' || COALESCE(original_reasons::text, '') ILIKE %s)"

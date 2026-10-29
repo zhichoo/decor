@@ -27,10 +27,13 @@ python scripts/init_db.py
 
 ```sh
 python scripts/migrate_transcript_jobs.py
+python scripts/migrate_claim_context.py
 python scripts/init_db.py
 ```
 
 迁移仅补充缺失字段，不改写现有业务数据；可以重复执行。`./dev.sh start` 会自动执行这些步骤。
+
+`dev0.2` 新增可空的 `claims.author_stance`、`content_type` 和 `source_quotes`，分别保存作者态度、主要内容类型和原文连续引句。旧字段 `stance` 保留兼容用途，不改变旧约束。旧卡片的新字段保持空值，不猜测态度、不自动生成引句，也不批量调用模型。新提取使用 v6 提示词；网页按作者态度展示，引用不等于事实核验。
 
 ## 可选演示数据
 

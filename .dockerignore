@@ -14,6 +14,7 @@
 !scripts/
 !scripts/init_db.py
 !scripts/migrate_transcript_jobs.py
+!scripts/migrate_claim_context.py
 !scripts/setup_local_asr.py
 !docker/
 !docker/entrypoint.py

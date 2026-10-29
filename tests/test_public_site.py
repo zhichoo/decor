@@ -31,6 +31,8 @@ def fixture():
                "conditions": "未提及", "alternatives": [], "price_info": "未提及", "created_at": 1000-index,
                "extraction_run_id": "private-run", "deleted_by": "private-admin", "deleted_at": None}
               for index in range(65)]
+    claims[0].update(author_stance="赞成", content_type="个人体验",
+                     source_quotes=["控制装修预算，材料施工前明确合同范围。"])
     return sources, videos, claims
 
 
@@ -142,6 +144,33 @@ class PublicSiteBrowserTests(unittest.TestCase):
         self.assertTrue(self.page.evaluate("fetchApiJson('/admin/deleted').then(()=>false,()=>true)"))
         self.assertEqual(self.api_requests, [])
         self.assertTrue(all(url.startswith(f"http://127.0.0.1:{self.http.server_port}/") for url in self.requests))
+        self.assertFalse(self.errors, self.errors)
+
+    def test_context_filters_quotes_and_legacy_cards_remain_read_only(self):
+        cards = self.page.locator("#knowledge-results .claim-card")
+        self.assertIn("作者赞成", cards.first.inner_text())
+        self.assertIn("适用范围未说明", cards.first.inner_text())
+        cards.first.locator(".claim-evidence summary").click()
+        self.assertEqual(cards.first.locator("blockquote").inner_text(), "控制装修预算，材料施工前明确合同范围。")
+        self.assertIn("暂缺卡片级引句", cards.nth(1).inner_text())
+        self.page.locator('[data-knowledge-group="按内容类型"]').click()
+        self.page.locator('[data-knowledge-category-value="个人体验"]').click()
+        self.page.wait_for_function("knowledgePageState.total === 1")
+        self.assertEqual(cards.count(), 1)
+        self.page.locator('[data-knowledge-category-value="旧版未分类"]').click()
+        self.page.wait_for_function("knowledgePageState.total === 64")
+        self.assertEqual(cards.first.locator(".claim-evidence").count(), 0)
+        self.page.locator('[data-knowledge-group="按作者态度"]').click()
+        self.page.locator('[data-knowledge-category-value="反对"]').click()
+        self.page.wait_for_function("knowledgePageState.total === 0")
+        self.page.locator('[data-knowledge-category-value="赞成"]').click()
+        self.page.wait_for_function("knowledgePageState.total === 65")
+        self.page.evaluate("setView('detail'); loadVideoDetail('v000').then(renderDetail)")
+        self.assertEqual(self.page.locator("#video-claims .claim-evidence").count(), 1)
+        markup = self.page.evaluate("renderClaimCard(normalizeApiClaim({object_name:'测试',stance:'未明确',source_quotes:['<img src=x onerror=alert(1)>']}))")
+        self.assertIn("&lt;img", markup)
+        self.assertNotIn("<img src=x", markup)
+        self.assertEqual(self.api_requests, [])
         self.assertFalse(self.errors, self.errors)
 
     def test_mobile_public_views_do_not_offer_management_and_private_bookmarks_fall_back(self):
