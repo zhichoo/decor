@@ -2,9 +2,6 @@
 .nav-item[hidden] { display: none !important; }
 
 #guide-view { --guide-measure: 46rem; --guide-sticky-offset: 0px; }
-/* The Studio theme pins its navigation bar to the top; keep sticky guide parts below it. */
-html[data-theme="studio"] #guide-view { --guide-sticky-offset: 88px; }
-@media (max-width: 1100px) { html[data-theme="studio"] #guide-view { --guide-sticky-offset: 148px; } }
 
 #guide-view .guide-empty {
   display: grid;
@@ -53,13 +50,18 @@ html[data-theme="studio"] #guide-view { --guide-sticky-offset: 88px; }
 #guide-view h2:focus-visible,
 #guide-view h3:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-/* Reading layout: sticky table of contents beside the chapters. */
+/* Reading layout: the app sidebar is the site navigation on the left, so the guide's own
+ * table of contents sits on the right of the text, like an "on this page" rail. */
 #guide-view .guide-read-layout {
   display: grid;
-  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--guide-measure)) 14rem;
+  grid-template-areas: "chapters toc";
+  justify-content: start;
   gap: var(--gap-lg);
   align-items: start;
 }
+#guide-view .guide-read-layout > .guide-chapters { grid-area: chapters; }
+#guide-view .guide-read-layout > .guide-toc { grid-area: toc; }
 
 #guide-view .guide-toc {
   position: sticky;
@@ -68,6 +70,8 @@ html[data-theme="studio"] #guide-view { --guide-sticky-offset: 88px; }
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  padding-left: var(--gap-md);
+  border-left: 1px solid var(--border);
   font-size: 13px;
 }
 #guide-view .guide-toc summary {
@@ -90,8 +94,8 @@ html[data-theme="studio"] #guide-view { --guide-sticky-offset: 88px; }
 #guide-view .guide-toc summary::-webkit-details-marker { display: none; }
 #guide-view .guide-toc summary::after { content: "收起"; margin-left: auto; color: var(--muted); font-weight: 400; letter-spacing: 0; }
 #guide-view .guide-toc.is-collapsed summary::after { content: "展开"; }
-/* Collapsed: keep the chapter titles, hide the section lists (wide screens only; the drawer always lists all). */
-@media (min-width: 1081px) {
+/* Collapsed: keep the chapter titles, hide the section lists (right rail only; the drawer always lists all). */
+@media (min-width: 1281px) {
   #guide-view .guide-toc.is-collapsed .guide-toc-chapter > ol { display: none; }
   #guide-view .guide-toc.is-collapsed .guide-toc-chapter.is-current > .guide-toc-link { border-left-color: var(--accent); background: var(--accent-soft); }
 }
@@ -331,10 +335,12 @@ html[data-theme="studio"] #guide-view { --guide-sticky-offset: 88px; }
 #guide-view .guide-toc-toggle,
 #guide-view .guide-toc-close { display: none; }
 
-@media (max-width: 1080px) {
-  #guide-view .guide-read-layout { grid-template-columns: minmax(0, 1fr); gap: var(--gap-md); }
+@media (max-width: 1280px) {
+  #guide-view .guide-read-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; gap: var(--gap-md); }
+  #guide-view .guide-read-layout > .guide-chapters, #guide-view .guide-read-layout > .guide-toc { grid-area: auto; }
   #guide-view .guide-toc {
     position: fixed;
+    border-left: 0;
     top: 0;
     bottom: 0;
     left: 0;
@@ -396,7 +402,7 @@ html[data-theme="studio"] #guide-view { --guide-sticky-offset: 88px; }
   #guide-view .guide-toc-toggle-current:empty { display: none; }
   #guide-view .guide-chapters { padding-bottom: 56px; }
 }
-@media (max-width: 1080px) and (prefers-reduced-motion: reduce) {
+@media (max-width: 1280px) and (prefers-reduced-motion: reduce) {
   #guide-view .guide-toc, #guide-view .guide-toc.is-open { transition: none; }
 }
 

@@ -122,6 +122,10 @@ const detailedVideos = new Map();
 let activeSourceFilter = null;
 let activeVideoPlatform = "全部";
 let activeVideoCreator = "全部";
+// The creator filter shows the busiest creators first; the rest open with "更多" or a name search.
+const VIDEO_CREATOR_PREVIEW = 12;
+let videoCreatorsExpanded = false;
+let videoCreatorQuery = "";
 let activeKnowledgeCategory = { type: "all", value: "全部" };
 let activeKnowledgeGroupTitle = "范围";
 let activeProgressFilter = "全部";
@@ -263,9 +267,31 @@ function getPipeline() {
 }
 
 function getVideoPublishTimestamp(video) {
-  const value = video.publishTime || "";
-  const timestamp = Date.parse(String(value).replace(" ", "T"));
+  const value = String(video.publishTime || "").trim();
+  // Times without an offset are Beijing time, like formatPublishTime and the server assume.
+  const naive = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/.test(value);
+  const timestamp = Date.parse(naive ? `${value.replace(" ", "T")}${value.length === 10 ? "T00:00:00" : ""}+08:00` : value);
   return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+/* published_at is stored as text in two shapes: platform-local "YYYY-MM-DD HH:MM:SS" and ISO
+ * with an offset ("2026-11-07T08:16:28+00:00"). Show both as Beijing time to the minute. */
+const PUBLISH_TIME_FORMAT = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
+function formatPublishTime(value) {
+  const text = String(value || "").trim();
+  if (!text || text === "未提及") return "";
+  if (/[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(text)) {
+    const date = new Date(text);
+    if (!Number.isNaN(date.getTime())) {
+      const parts = Object.fromEntries(PUBLISH_TIME_FORMAT.formatToParts(date).map((part) => [part.type, part.value]));
+      return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+    }
+  }
+  return text.replace("T", " ").replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}(\.\d+)?$/, "$1");
 }
 
 function formatEpochDateTime(value) {
@@ -278,7 +304,7 @@ function formatEpochDateTime(value) {
 
 function getVideoProgressTimeItems(video) {
   return [
-    { label: "发布时间", value: video.publishTime || "未提及" },
+    { label: "发布时间", value: formatPublishTime(video.publishTime) || "未提及" },
     { label: "状态更新时间", value: formatEpochDateTime(video.updatedAt) },
   ];
 }
@@ -2638,7 +2664,12 @@ function renderVideoFilters() {
   if (!panel) return;
   const counts = getVideoFilterCounts();
   const platforms = ["全部", ...counts.platforms.keys()];
-  const creators = ["全部", ...counts.creators.keys()];
+  const ranked = [...counts.creators.keys()].sort((a, b) => (counts.creators.get(b) || 0) - (counts.creators.get(a) || 0)
+    || a.localeCompare(b, "zh-CN"));
+  const preview = new Set(ranked.slice(0, VIDEO_CREATOR_PREVIEW));
+  if (activeVideoCreator !== "全部") preview.add(activeVideoCreator);
+  const creators = ["全部", ...ranked];
+  const extraCount = ranked.filter((creator) => !preview.has(creator)).length;
   const platformTotal = activeVideoPlatform === "全部" ? counts.total : (counts.platforms.get(activeVideoPlatform) || 0);
   panel.innerHTML = `
     <section class="video-filter-group" aria-label="按平台筛选">
@@ -2656,22 +2687,50 @@ function renderVideoFilters() {
           .join("")}
       </div>
     </section>
-    <section class="video-filter-group" aria-label="按博主筛选">
+    <section class="video-filter-group video-creator-filter" aria-label="按博主筛选">
       <span>博主</span>
       <div>
+        ${ranked.length > VIDEO_CREATOR_PREVIEW ? `<input class="video-creator-search" type="search" data-video-creator-search placeholder="搜博主（共 ${ranked.length} 位）" aria-label="搜索博主" value="${escapeAttr(videoCreatorQuery)}" />` : ""}
         ${creators
           .map((creator) => {
             const count = creator === "全部" ? platformTotal : counts.creators.get(creator);
+            const extra = creator !== "全部" && !preview.has(creator);
             return `
-              <button class="filter-button ${activeVideoCreator === creator ? "active" : ""}" type="button" data-video-creator="${escapeAttr(creator)}" data-video-count="${count}">
+              <button class="filter-button ${activeVideoCreator === creator ? "active" : ""}" type="button" data-video-creator="${escapeAttr(creator)}" data-video-count="${count}"${extra ? " data-creator-extra" : ""}>
                 ${escapeHtml(creator)} ${count}
               </button>
             `;
           })
           .join("")}
+        ${extraCount ? `<button class="filter-button video-creator-more" type="button" data-video-creator-more aria-expanded="${videoCreatorsExpanded}"></button>` : ""}
+        <span class="video-creator-empty" data-video-creator-empty hidden>没有匹配的博主</span>
       </div>
     </section>
   `;
+  applyVideoCreatorVisibility(extraCount);
+}
+
+/* Show or hide creator chips in place, so typing in the search box keeps focus. */
+function applyVideoCreatorVisibility(extraCount) {
+  const group = document.querySelector("#video-filter-panel .video-creator-filter");
+  if (!group) return;
+  const query = videoCreatorQuery.trim().toLowerCase();
+  let matches = 0;
+  group.querySelectorAll("[data-video-creator]").forEach((button) => {
+    const name = button.dataset.videoCreator;
+    if (name === "全部") return;
+    const visible = query ? name.toLowerCase().includes(query) : videoCreatorsExpanded || !button.hasAttribute("data-creator-extra");
+    button.hidden = !visible;
+    if (visible) matches += 1;
+  });
+  const more = group.querySelector("[data-video-creator-more]");
+  if (more) {
+    const extras = extraCount ?? group.querySelectorAll("[data-creator-extra]").length;
+    more.hidden = Boolean(query);
+    more.textContent = videoCreatorsExpanded ? "收起" : `更多博主 ${extras} 位`;
+    more.setAttribute("aria-expanded", String(videoCreatorsExpanded));
+  }
+  group.querySelector("[data-video-creator-empty]").hidden = !query || matches > 0;
 }
 
 function renderVideos() {
@@ -2738,7 +2797,7 @@ function renderVideos() {
             <p>${escapeHtml(video.creator)} / ${escapeHtml(video.platform)}</p>
           </div>
           <div class="timeline-meta">
-            <span class="chip">${escapeHtml(video.publishTime)}</span>
+            <span class="chip">${escapeHtml(formatPublishTime(video.publishTime) || "未提及")}</span>
             <button class="chip video-claims-trigger" type="button" data-video-claims-id="${escapeAttr(video.id)}" aria-haspopup="dialog" aria-controls="video-claims-dialog" aria-label="查看${escapeAttr(video.title)}的观点">${video.claimCount} 条观点</button>
             ${video.excludedClaimCount && adminSession.authenticated && !adminSession.read_only && !window.DECOR_PUBLIC_LIBRARY ? `<button class="video-filtered-trigger" type="button" data-video-exclusions-id="${escapeAttr(video.id)}" aria-haspopup="dialog" aria-controls="video-exclusions-dialog" aria-label="查看 ${video.excludedClaimCount} 条过滤记录" title="查看过滤的原文和原因">${videoBadgeSvg("filter")}<span>过滤 ${video.excludedClaimCount}</span><span aria-hidden="true">›</span></button>` : ""}
           </div>
@@ -3456,7 +3515,7 @@ function renderDetail() {
   document.querySelector("#detail-heading").textContent = video.title;
   document.querySelector("#detail-heading").title = video.title;
   document.querySelector("#detail-creator").textContent = video.creator;
-  document.querySelector("#detail-published").textContent = video.publishTime === "未提及" ? "" : String(video.publishTime).replace("T", " ").replace(/(\d{2}:\d{2}):\d{2}.*$/, "$1");
+  document.querySelector("#detail-published").textContent = formatPublishTime(video.publishTime);
   document.querySelector("#detail-claim-count").textContent = video.claims.length;
   const stages = getProgressStageTags(video).tags;
   document.querySelector("#detail-status").innerHTML = stages.filter(tag => tag.key !== "link")
@@ -4041,6 +4100,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-video-creator-more]")) {
+    videoCreatorsExpanded = !videoCreatorsExpanded;
+    applyVideoCreatorVisibility();
+    return;
+  }
+
   const videoCreatorButton = event.target.closest("[data-video-creator]");
   if (videoCreatorButton) {
     activeSourceFilter = null;
@@ -4311,6 +4376,12 @@ document.querySelector("#transcript-editor")?.addEventListener("input", (event) 
   state.draft = event.target.value;
   state.message = "";
   renderTranscriptEditor(video);
+});
+
+document.querySelector("#video-filter-panel")?.addEventListener("input", (event) => {
+  if (!event.target.matches("[data-video-creator-search]")) return;
+  videoCreatorQuery = event.target.value;
+  applyVideoCreatorVisibility();
 });
 
 document.querySelector("#knowledge-query").addEventListener("input", () => {

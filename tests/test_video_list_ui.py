@@ -5,7 +5,8 @@ Requires Playwright and Google Chrome.
 """
 from collections import Counter
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
+
 import json
 from pathlib import Path
 import threading
@@ -16,6 +17,13 @@ try:
     from playwright.sync_api import sync_playwright
 except ImportError:
     sync_playwright = None
+
+
+class ThreadingHTTPServer(_ThreadingHTTPServer):
+    # The default listen backlog (5) overflows when a page reload opens many connections;
+    # on macOS the extra ones are reset and a stylesheet randomly fails to load.
+    request_queue_size = 128
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1045,6 +1053,39 @@ class VideoListUITests(unittest.TestCase):
           } finally { fetchApiJson=original; }
         }""")
         self.assertEqual(result, 178)
+
+    def test_publish_times_are_shown_in_one_format(self):
+        result = self.page.evaluate("""() => [
+          formatPublishTime("2026-11-07T08:16:28+00:00"),
+          formatPublishTime("2026-11-04 16:54:54"),
+          formatPublishTime("2026-08-21T23:00:00Z"),
+          formatPublishTime("2025-01-02"),
+          formatPublishTime("未提及"),
+        ]""")
+        self.assertEqual(result, ["2026-11-07 16:16", "2026-11-04 16:54", "2026-08-22 07:00", "2025-01-02", ""])
+
+    def test_creator_filter_shows_top_creators_with_search_and_more(self):
+        rows = [{"platform": "抖音", "creator": f"博主{i:02d}", "video_count": 40 - i} for i in range(20)]
+        self.page.evaluate("""rows => {
+          videoFacets = {...(videoFacets || {}), total: 590, platforms: [{platform: "抖音", video_count: 590}], creators: rows};
+          renderVideoFilters();
+        }""", rows)
+        visible = lambda: self.page.locator("[data-video-creator]:visible").count()
+        self.assertEqual(visible(), 13)  # 全部 + the 12 busiest creators
+        self.assertTrue(self.page.locator('[data-video-creator="博主00"]').is_visible())
+        self.assertFalse(self.page.locator('[data-video-creator="博主19"]').is_visible())
+        more = self.page.locator("[data-video-creator-more]")
+        self.assertEqual(more.inner_text(), "更多博主 8 位")
+        more.click()
+        self.assertEqual(visible(), 21)
+        more.click()
+        search = self.page.locator("[data-video-creator-search]")
+        search.fill("博主19")
+        self.assertEqual(visible(), 2)
+        self.assertTrue(self.page.locator('[data-video-creator="博主19"]').is_visible())
+        search.fill("没有这个人")
+        self.assertTrue(self.page.locator("[data-video-creator-empty]").is_visible())
+        self.assertFalse(self.errors, self.errors)
 
     def test_partial_creator_list_is_repaired_instead_of_marked_complete(self):
         self.rows = [row for row in self.rows if row["creator"] != "Creator A" or int(row["id"][1:]) < 17]

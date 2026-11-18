@@ -7,11 +7,8 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="./assets/icons/favicon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20261110-back-to-top" />
-    <link rel="stylesheet" href="./assets/themes/controls.css?v=20261110-themes" />
-    <link rel="stylesheet" href="./guides.css?v=20261118-guide10" />
-    <script src="./assets/themes/config.js?v=20261110-themes"></script>
-    <script src="./assets/themes/loader.js?v=20261110-themes"></script>
+    <link rel="stylesheet" href="./styles.css?v=20261118-compact-mobile3" />
+    <link rel="stylesheet" href="./guides.css?v=20261118-guide11" />
   </head>
   <body>
     <div class="app-shell">
@@ -48,7 +45,7 @@
             <span class="nav-label">知识库</span>
           </button>
           <button class="nav-item" data-view="guide" type="button" hidden>
-            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7h6M9 10.5h4"/></svg></span>
+            <span class="nav-icon" aria-hidden="true"><img src="./assets/icons/nav-guide.png" alt="" /></span>
             <span class="nav-label">装修指南</span>
           </button>
           <button class="nav-item" data-view="deleted" type="button" data-admin-only>
@@ -81,11 +78,6 @@
             <div><h2 id="settings-heading">转写设置</h2><p>仅影响后续转写，不改变已保存文案、进行中任务及观点提取。</p></div>
           </div>
           <div id="transcript-settings" aria-busy="false"></div>
-          <section class="appearance-settings" aria-labelledby="appearance-heading">
-            <h2 id="appearance-heading">界面主题</h2>
-            <div class="theme-options" data-theme-options role="group" aria-label="选择界面主题"></div>
-            <p class="form-message" data-theme-message role="status" aria-live="polite"></p>
-          </section>
         </section>
 
         <section class="view" id="overview-view" aria-labelledby="page-title">
@@ -416,7 +408,7 @@
       </form>
     </dialog>
 
-    <script src="./guides.js?v=20261118-guide10"></script>
-    <script src="./app.js?v=20261118-admin-progress"></script>
+    <script src="./guides.js?v=20261118-guide11"></script>
+    <script src="./app.js?v=20261118-creator-filter"></script>
   </body>
 </html>

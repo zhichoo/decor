@@ -16,7 +16,7 @@ import urllib.request
 import uuid
 from base64 import b64decode, b64encode
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -396,6 +396,10 @@ def raw_response_jsonb(raw_response):
         return Json({"raw": raw_response})
 
 
+# Publish times without an offset were collected or typed as Beijing time.
+PUBLISH_TIMEZONE = timezone(timedelta(hours=8))
+
+
 def parse_published_at(value):
     text = str(value or "").strip()
     if not text:
@@ -407,7 +411,7 @@ def parse_published_at(value):
     )
     for fmt in formats:
         try:
-            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(text, fmt).replace(tzinfo=PUBLISH_TIMEZONE)
         except ValueError:
             pass
     try:
@@ -415,7 +419,7 @@ def parse_published_at(value):
     except ValueError:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=PUBLISH_TIMEZONE)
     return dt
 
 

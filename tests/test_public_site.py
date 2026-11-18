@@ -1,12 +1,20 @@
 """Read-only export/privacy and static-browser regressions; no real model or API calls."""
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
+
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import threading
 import unittest
+
+
+class ThreadingHTTPServer(_ThreadingHTTPServer):
+    # The default listen backlog (5) overflows when a page reload opens many connections;
+    # on macOS the extra ones are reset and a stylesheet randomly fails to load.
+    request_queue_size = 128
+
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("decor_public_export", ROOT / "scripts/export_public.py")

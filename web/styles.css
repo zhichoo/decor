@@ -1194,6 +1194,37 @@ textarea::placeholder {
   gap: 8px;
 }
 
+.video-creator-search {
+  flex: 1 0 100%;
+  max-width: 320px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.video-creator-filter [hidden] {
+  display: none !important;
+}
+
+.video-creator-more {
+  border-style: dashed;
+  color: var(--accent);
+}
+
+.video-creator-more::before {
+  display: none;
+}
+
+.video-creator-empty {
+  align-self: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .filter-button {
   min-height: 30px;
   padding: 0 10px;
@@ -3165,12 +3196,7 @@ select,
   --metric-art-sheet: url("./assets/cards/dashboard-metrics-sheet.jpg");
 }
 
-.pipeline {
-  --metric-art-sheet: url("./assets/cards/video-metrics-sheet.jpg");
-}
-
-.summary-grid > article:nth-child(n),
-.pipeline > .pipeline-card:nth-child(n) {
+.summary-grid > article:nth-child(n) {
   background:
     linear-gradient(180deg, oklch(12% 0.012 92 / 0.06) 0%, oklch(12% 0.012 92 / 0.22) 48%, oklch(12% 0.012 92 / 0.72) 100%),
     var(--metric-art-sheet) var(--metric-art-position) / 200% 200% no-repeat,
@@ -5901,4 +5927,109 @@ select,
   .claim-relations-content .claim-card-heading h3 { flex-basis: 140px; }
   .claim-relations-content .claim-conclusion p { font-size: 14px; }
   .claim-comparison-source { margin-bottom: 10px; }
+}
+
+/* Inner pages: the video statistics are one compact row of numbers; the illustrated
+ * metric cards stay on the overview, so the list starts near the top of the page. */
+#pipeline.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 28px;
+  margin-bottom: var(--gap-md);
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+#pipeline > .pipeline-card:nth-child(n) {
+  isolation: auto;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+#pipeline > .pipeline-card::before,
+#pipeline > .pipeline-card::after {
+  content: none;
+}
+
+#pipeline .pipeline-card span {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  backdrop-filter: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#pipeline .pipeline-card strong,
+#pipeline .pipeline-card:last-child strong {
+  align-self: auto;
+  margin: 0;
+  color: var(--fg);
+  font-size: 20px;
+  line-height: 1.2;
+  text-shadow: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phones: filter chips wrap inline instead of one per row, and the admin login sits
+ * beside the page title instead of taking a row of its own. */
+@media (max-width: 520px) {
+  .video-filter-group .filter-button {
+    width: auto;
+  }
+
+  .video-creator-search {
+    max-width: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .topbar > div:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .admin-panel {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .admin-panel[data-authenticated="false"] #admin-status {
+    display: none;
+  }
+}
+
+/* Phones: the overview's four illustrated metrics sit in a 2 x 2 grid instead of a tall stack. */
+@media (max-width: 520px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .summary-grid > article:nth-child(n) {
+    min-height: 112px;
+    padding: 10px 10px 12px;
+  }
+
+  .summary-grid > article strong {
+    margin-top: 12px;
+    font-size: clamp(30px, 10vw, 40px);
+  }
 }

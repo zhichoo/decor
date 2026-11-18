@@ -1,6 +1,7 @@
 """Guide content: structure checks, card-reference degradation, Markdown import, public export and reading UI."""
 from functools import partial
-from http.server import ThreadingHTTPServer
+from http.server import ThreadingHTTPServer as _ThreadingHTTPServer
+
 import copy
 import importlib.util
 import json
@@ -9,6 +10,13 @@ import sys
 import tempfile
 import threading
 import unittest
+
+
+class ThreadingHTTPServer(_ThreadingHTTPServer):
+    # The default listen backlog (5) overflows when a page reload opens many connections;
+    # on macOS the extra ones are reset and a stylesheet randomly fails to load.
+    request_queue_size = 128
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -296,6 +304,9 @@ class GuideBrowserTests(unittest.TestCase):
         page.wait_for_selector('.guide-toc-chapter.is-current[data-toc-chapter="ch0"]')
         self.assertTrue(page.locator('.guide-toc-link[data-guide-section="s0.1"]').is_visible())
         self.assertTrue(page.locator(".guide-toc details").evaluate("el => el.open"))
+        # Wide screens: the TOC is a rail to the right of the text, not a second left column.
+        self.assertGreater(page.locator("#guide-toc").bounding_box()["x"], page.locator(".guide-chapters").bounding_box()["x"])
+        self.assertFalse(page.locator("[data-guide-toc-toggle]").is_visible())
         page.locator(".guide-toc summary").click()  # folds to chapter titles, never hides them
         self.assertTrue(page.locator('.guide-toc-chapter > .guide-toc-link[data-guide-section="ch0"]').is_visible())
         self.assertFalse(page.locator('.guide-toc-link[data-guide-section="s0.1"]').is_visible())

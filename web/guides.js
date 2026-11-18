@@ -302,8 +302,8 @@
     } else go();
   }
 
-  /* Narrow screens: the TOC is a drawer on the left, opened from a floating button. */
-  const TOC_DRAWER = "(max-width: 1080px)";
+  /* Up to 1280px there is no room for the right rail: the TOC becomes a left drawer opened from a floating button. */
+  const TOC_DRAWER = "(max-width: 1280px)";
 
   function setTocDrawer(open, { restoreFocus = false } = {}) {
     const root = view();

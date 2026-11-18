@@ -141,7 +141,8 @@ def recursive_find_video_objects(value, inherited_pinned=False):
         published_at = ""
         if isinstance(create_time, (int, float)) and create_time > 0:
             try:
-                published_at = dt.datetime.fromtimestamp(create_time).strftime("%Y-%m-%d %H:%M:%S")
+                # Keep the offset: a bare local time would depend on the collecting machine's zone.
+                published_at = dt.datetime.fromtimestamp(create_time, dt.timezone.utc).isoformat(timespec="seconds")
             except Exception:
                 published_at = ""
         found.append(
