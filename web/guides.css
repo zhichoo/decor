@@ -57,7 +57,9 @@
   grid-template-columns: minmax(0, var(--guide-measure)) 14rem;
   grid-template-areas: "chapters toc";
   justify-content: start;
-  gap: var(--gap-lg);
+  /* Keep clear air between the text and the rail; it grows with the screen. */
+  column-gap: clamp(4.5rem, 7vw, 8rem);
+  row-gap: var(--gap-lg);
   align-items: start;
 }
 #guide-view .guide-read-layout > .guide-chapters { grid-area: chapters; }
@@ -69,11 +71,13 @@
   max-height: calc(100vh - var(--guide-sticky-offset) - 2 * var(--gap-md));
   overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  padding-left: var(--gap-md);
+  /* Still scrolls with the wheel or touch; the bar itself is hidden. */
+  scrollbar-width: none;
+  padding-left: 1.25rem;
   border-left: 1px solid var(--border);
   font-size: 13px;
 }
+#guide-view .guide-toc::-webkit-scrollbar { display: none; }
 #guide-view .guide-toc summary {
   position: sticky;
   top: 0;
