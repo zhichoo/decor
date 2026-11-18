@@ -18,6 +18,11 @@
           if (data.format_version !== 1 || !Array.isArray(data.videos) || !Array.isArray(data.claims)) {
             throw new Error("公开快照格式不兼容。");
           }
+          const types = data.knowledge_facets?.content_types;
+          if (types && Object.hasOwn(types, "旧版未分类")) {
+            types["未分类"] = (types["未分类"] || 0) + types["旧版未分类"];
+            delete types["旧版未分类"];
+          }
           return data;
         })
         .catch((error) => { pending = null; throw error; });
@@ -26,6 +31,7 @@
   }
 
   const contains = (text, query) => String(text || "").toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  const contentTypeLabel = (value) => !value || value === "旧版未分类" ? "未分类" : value;
   function page(items, params, key, fallback) {
     const integer = (name, defaultValue) => /^\d+$/.test(params.get(name) || "") ? Number(params.get(name)) : defaultValue;
     const limit = Math.max(1, Math.min(100, integer("limit", fallback)));
@@ -74,7 +80,7 @@
         const tag = params.get("tag");
         const stance = params.get("stance");
         const authorStance = params.get("author_stance");
-        const contentType = params.get("content_type");
+        const contentType = params.get("content_type") ? contentTypeLabel(params.get("content_type")) : "";
         const query = params.get("q");
         const items = data.claims.filter((claim) =>
           (!stages.length ? !stage || claim.process_stage === stage : stages.includes(claim.process_stage)) &&
@@ -82,26 +88,48 @@
             || (claim.process_stage || "").includes(tag) || claim.stance === tag) &&
           (!stance || claim.stance === stance) &&
           (!authorStance || (claim.author_stance || ({ "明确推荐": "赞成", "明确不推荐": "反对" }[claim.stance] || "未明确")) === authorStance) &&
-          (!contentType || (claim.content_type || "旧版未分类") === contentType) &&
+          (!contentType || contentTypeLabel(claim.content_type) === contentType) &&
           (!query || contains([claim.object_name, claim.original_conclusion, claim.conditions,
             ...(claim.original_reasons || [])].join(" "), query)));
         result = { ...page(items, params, "claims", 50), facets: data.knowledge_facets };
         break;
       }
-      case "/api/progress-summary":
-        result = { counts: data.progress_counts };
+      case "/api/guides":
+        // Older snapshots have no guides; the guide entry stays hidden for them.
+        result = { guides: Object.values(data.guides || {}).map(({ slug, title, updated_at }) => ({ slug, title, updated_at })) };
         break;
-      case "/api/progress-videos": {
-        const state = params.get("state");
-        const items = data.videos.filter((video) => !state || state === "全部" || video.progress_state === state);
-        result = page(items.map(summary), params, "videos", 30);
-        break;
-      }
       default: {
+        const guideMatch = url.pathname.match(/^\/api\/guides\/([a-z0-9-]+)$/);
+        if (guideMatch) {
+          const guide = data.guides && Object.hasOwn(data.guides, guideMatch[1]) ? data.guides[guideMatch[1]] : null;
+          if (!guide) throw Object.assign(new Error("指南不存在或未公开。"), { status: 404 });
+          result = guide;
+          break;
+        }
+        const relationMatch = url.pathname.match(/^\/api\/knowledge\/claims\/([^/]+)\/relations$/);
+        if (relationMatch) {
+          const id = decodeURIComponent(relationMatch[1]);
+          const claim = data.claims.find(item => item.id === id);
+          if (!claim) throw Object.assign(new Error("知识卡不存在或未公开。"), { status: 404 });
+          const byId = new Map(data.claims.map(item => [item.id, item]));
+          result = { claim, relations: (data.claim_relations || [])
+            .filter(row => row.claim_a_id === id || row.claim_b_id === id)
+            .map(row => ({ kind: row.kind, reason: row.reason,
+              claim: byId.get(row.claim_a_id === id ? row.claim_b_id : row.claim_a_id) }))
+            .filter(row => row.claim) };
+          break;
+        }
+        const sourceMatch = url.pathname.match(/^\/api\/knowledge\/sources\/([^/]+)$/);
+        if (sourceMatch) {
+          const video = (data.retained_sources || []).find(item => item.id === decodeURIComponent(sourceMatch[1]));
+          if (!video || params.has("include_runs")) throw Object.assign(new Error("来源不存在或未公开。"), { status: 404 });
+          result = { video, claims: data.claims.filter(claim => claim.video_id === video.id) };
+          break;
+        }
         const match = url.pathname.match(/^\/api\/videos\/([^/]+)$/);
         if (!match || params.has("include_runs")) throw new Error("公开预览不提供管理接口。");
         const video = data.videos.find((item) => item.id === decodeURIComponent(match[1]));
-        if (!video) throw new Error("视频不存在或未公开。");
+        if (!video) throw Object.assign(new Error("视频不存在或未公开。"), { status: 404 });
         result = { video, claims: data.claims.filter((claim) => claim.video_id === video.id) };
       }
     }

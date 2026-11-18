@@ -119,7 +119,7 @@ class VideoFacetsTests(unittest.TestCase):
             self.add_claim(f"alice-card-{index}", "alice-00")
         self.add_claim("bob-card", "bob")
         self.add_claim("deleted-card", "alice-00", deleted_at=10)
-        # Also exclude active cards attached to a soft-deleted video.
+        # Cards explicitly retained when trashing a video remain in the knowledge library.
         self.add_claim("card-on-deleted-alice", "deleted-alice")
         self.add_claim("card-on-deleted-only", "deleted-only")
 
@@ -206,8 +206,8 @@ class VideoFacetsTests(unittest.TestCase):
         sources = self.server.fetch_sources(self.conn)
         by_id = {source["id"]: source for source in sources}
         self.assertEqual(set(by_id), {"alice-source", "bob-source", "empty-source", "deleted-source"})
-        expected = {"alice-source": (31, 3, 2), "bob-source": (1, 1, 1),
-                    "empty-source": (0, 0, 0), "deleted-source": (0, 0, 0)}
+        expected = {"alice-source": (31, 4, 2), "bob-source": (1, 1, 1),
+                    "empty-source": (0, 0, 0), "deleted-source": (0, 1, 0)}
         for source_id, counts in expected.items():
             with self.subTest(source_id=source_id):
                 source = by_id[source_id]
@@ -217,7 +217,7 @@ class VideoFacetsTests(unittest.TestCase):
         self.assertEqual(by_id["empty-source"]["status"], "inactive")
         self.assertEqual(sources[0]["id"], "alice-source")
 
-    def test_empty_active_library_has_empty_facets_and_zero_source_counts(self):
+    def test_trashing_all_videos_keeps_retained_card_counts_and_empty_video_facets(self):
         self.conn.execute("UPDATE videos SET deleted_at = 10")
         page = self.server.fetch_video_page(self.conn)
         self.assertEqual(page["facets"], {"platforms": [], "creators": [], "total": 0})
@@ -226,7 +226,11 @@ class VideoFacetsTests(unittest.TestCase):
         sources = self.server.fetch_sources(self.conn)
         self.assertEqual(len(sources), 4)
         self.assertTrue(all(source[key] == 0 for source in sources
-                            for key in ("video_count", "claim_count", "pending_count")))
+                            for key in ("video_count", "pending_count")))
+        self.assertEqual({source["id"]: source["claim_count"] for source in sources},
+                         {"alice-source": 4, "bob-source": 1, "empty-source": 0, "deleted-source": 1})
+        self.conn.execute("UPDATE claims SET deleted_at = 10")
+        self.assertTrue(all(source["claim_count"] == 0 for source in self.server.fetch_sources(self.conn)))
 
     def get_payload(self, path):
         handler = SimpleNamespace(send_json=lambda payload: payload)

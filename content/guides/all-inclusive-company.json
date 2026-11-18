@@ -1,0 +1,4463 @@
+{
+ "id": "guide-all-inclusive-company",
+ "slug": "all-inclusive-company",
+ "title": "选装修公司（全包／半包）指南",
+ "schema_version": 1,
+ "content_version": "20261118",
+ "updated_at": "2026-11-18",
+ "scope": "从选承包方式、定范围、筛公司、比报价、核合同，到施工验收、交接售后，每一步要问什么、要拿到什么材料。",
+ "notice": "经验类内容是作者观点；法院案例只说明个案中法院的认定；合同示范文本供参照，不是强制规定。清单用于收集信息，不代表认证，也不是法律意见。",
+ "chapters": [
+  {
+   "id": "ch0",
+   "number": "0",
+   "title": "先选模式",
+   "intro": [],
+   "sections": [
+    {
+     "id": "s0.1",
+     "number": "0.1",
+     "title": "四种模式各包什么",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "table",
+       "header": [
+        "俗称",
+        "合同写法",
+        "你自己买"
+       ],
+       "items": [
+        {
+         "cells": [
+          "清包",
+          "只包工",
+          "全部材料"
+         ],
+         "id": "s0.1-text-1-1"
+        },
+        {
+         "cells": [
+          "半包",
+          "包工＋部分材料",
+          "以材料表为准，通常是主材"
+         ],
+         "id": "s0.1-text-1-2"
+        },
+        {
+         "cells": [
+          "全包",
+          "包工＋全部材料",
+          "以清单为准"
+         ],
+         "id": "s0.1-text-1-3"
+        },
+        {
+         "cells": [
+          "整装",
+          "无统一写法",
+          "全包之外再加定制、家电、软装，差别很大"
+         ],
+         "id": "s0.1-text-1-4"
+        }
+       ],
+       "kind": "text",
+       "id": "s0.1-text-1"
+      },
+      {
+       "type": "paragraph",
+       "text": "[^c01-1]",
+       "kind": "text",
+       "id": "s0.1-text-2"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "“全包”“包工包料”只是行业里的说法，包什么只看合同附件的清单。[^c01-2]",
+         "id": "s0.1-pitfalls-1-1"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s0.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "合同里勾选的是哪种承包方式？",
+         "id": "s0.1-questions-1-1"
+        },
+        {
+         "text": "总价含不含水电改造？",
+         "id": "s0.1-questions-1-2"
+        },
+        {
+         "text": "按面积报价时，用的是建筑面积还是套内面积？",
+         "id": "s0.1-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s0.1-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s0.2",
+     "number": "0.2",
+     "title": "按自己的情况选",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "table",
+       "header": [
+        "",
+        "偏全包、整装",
+        "偏半包、清包"
+       ],
+       "items": [
+        {
+         "cells": [
+          "能去现场的时间",
+          "少",
+          "多"
+         ],
+         "id": "s0.2-text-1-1"
+        },
+        {
+         "cells": [
+          "看得懂材料和报价",
+          "不太懂",
+          "有经验"
+         ],
+         "id": "s0.2-text-1-2"
+        },
+        {
+         "cells": [
+          "入住时间",
+          "紧",
+          "不急"
+         ],
+         "id": "s0.2-text-1-3"
+        }
+       ],
+       "kind": "text",
+       "id": "s0.2-text-1"
+      },
+      {
+       "type": "paragraph",
+       "text": "全包、整装省心，但包哪些全看合同怎么写；半包、清包要自己盯材料什么时候到、和施工接不接得上。[^c01-3]",
+       "kind": "text",
+       "id": "s0.2-text-2"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "只靠口头或微信约定、没有书面合同的，出了纠纷很难举证。[^c01-4]",
+         "id": "s0.2-pitfalls-1-1"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s0.2-pitfalls-1"
+      }
+     ]
+    },
+    {
+     "id": "s0.3",
+     "number": "0.3",
+     "title": "混合方式",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "text": "很多人把基础工程交给公司，主材或定制自己买。这样做的话，每一项都要写清**谁供应、谁安装、谁保修**。业主自己买的主材，施工方通常只管安装，不管材料质保。[^c01-5]",
+       "kind": "text",
+       "id": "s0.3-text-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "一张写明“供应方／安装方／保修方”的分工清单。",
+       "kind": "documents",
+       "id": "s0.3-documents-1"
+      }
+     ]
+    }
+   ],
+   "sources": []
+  },
+  {
+   "id": "ch1",
+   "number": "1",
+   "title": "定范围",
+   "intro": [],
+   "sections": [
+    {
+     "id": "s1.1",
+     "number": "1.1",
+     "title": "主材辅材分工",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "text": "“包料”包哪些料，没有统一说法，同一样东西有的公司算在施工报价里，有的要你另买。全包要看套餐里含不含，半包要看哪些得自己买，签约前都拿下面这张表对一遍。[^c01-6]",
+       "kind": "text",
+       "id": "s1.1-text-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "中间一列最容易漏，逐样问清归哪边，写进材料清单。",
+       "kind": "points",
+       "id": "s1.1-points-1"
+      },
+      {
+       "type": "table",
+       "header": [
+        "阶段",
+        "一般含在施工报价里（辅材）",
+        "要问清归哪边",
+        "一般另买或另计（主材）"
+       ],
+       "items": [
+        {
+         "cells": [
+          "拆改、砌墙",
+          "砖、水泥砂浆、铁丝网",
+          "拆除后的垃圾外运（见 1.3）",
+          "—"
+         ],
+         "id": "s1.1-text-2-1"
+        },
+        {
+         "cells": [
+          "水电",
+          "给水管和管件、电线、电线管",
+          "暗盒、强电箱；水电是按项“预收”还是按米数和点位列明[^c01-7]",
+          "开关插座面板、灯具[^c01-8]"
+         ],
+         "id": "s1.1-text-2-2"
+        },
+        {
+         "cells": [
+          "防水、瓦工",
+          "水泥砂浆、防水涂料",
+          "瓷砖胶、勾缝剂和美缝[^c01-9]；下水管隔音棉[^c01-10]",
+          "瓷砖、过门石和窗台石、地漏[^c01-8]"
+         ],
+         "id": "s1.1-text-2-3"
+        },
+        {
+         "cells": [
+          "木工",
+          "石膏板、龙骨、基层板",
+          "吊顶：石膏板吊顶通常算施工，集成吊顶和铝扣板通常算主材[^c01-8]",
+          "门和门套、定制柜"
+         ],
+         "id": "s1.1-text-2-4"
+        },
+        {
+         "cells": [
+          "油漆",
+          "腻子、界面剂、嵌缝带",
+          "乳胶漆的品牌、遍数和颜色数[^c01-11]",
+          "壁纸、墙板"
+         ],
+         "id": "s1.1-text-2-5"
+        },
+        {
+         "cells": [
+          "安装",
+          "玻璃胶",
+          "角阀、软管[^c01-12]",
+          "洁具、橱柜和台面、暖气片、窗帘杆"
+         ],
+         "id": "s1.1-text-2-6"
+        }
+       ],
+       "kind": "text",
+       "id": "s1.1-text-2"
+      },
+      {
+       "type": "paragraph",
+       "text": "[^c01-13]",
+       "kind": "text",
+       "id": "s1.1-text-3"
+      },
+      {
+       "type": "paragraph",
+       "text": "半包最常出问题的地方，是自己买的材料和施工接不上。",
+       "kind": "text",
+       "id": "s1.1-text-4"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "“自购材料出问题由谁负责”要拆成两问：**装坏了**算谁的，**材料本身坏了**算谁的。[^c01-14]",
+         "id": "s1.1-pitfalls-1-1"
+        },
+        {
+         "text": "施工方已经提出材料不合适，你仍书面同意使用的，后果可能由你承担。[^c01-15]",
+         "id": "s1.1-pitfalls-1-2"
+        },
+        {
+         "text": "你买的材料晚到导致停工，一般算业主的原因。[^c01-16]",
+         "id": "s1.1-pitfalls-1-3"
+        },
+        {
+         "text": "材料到场当场开箱检查，铺贴后才发现问题就说不清了。[^c01-17]",
+         "id": "s1.1-pitfalls-1-4"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s1.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "施工方会给材料供需时间表吗？每样材料最晚哪天到场？",
+         "id": "s1.1-questions-1-1"
+        },
+        {
+         "text": "到场由谁验收，是否留交接记录？",
+         "id": "s1.1-questions-1-2"
+        },
+        {
+         "text": "装坏了谁负责？材料本身有问题谁负责？",
+         "id": "s1.1-questions-1-3"
+        },
+        {
+         "text": "材料晚到导致停工，工期怎么算？",
+         "id": "s1.1-questions-1-4"
+        }
+       ],
+       "kind": "questions",
+       "id": "s1.1-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "双方各一张材料明细表（品牌、型号、规格、数量），材料供需时间表，每批材料的交接记录。",
+       "kind": "documents",
+       "id": "s1.1-documents-1"
+      }
+     ]
+    },
+    {
+     "id": "s1.2",
+     "number": "1.2",
+     "title": "套餐包什么、不包什么",
+     "tags": [
+      "全包"
+     ],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "text": "套餐价只覆盖它那张清单，清单以外的都可能另外收钱。",
+       "kind": "text",
+       "id": "s1.2-text-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "报价单的类目名称会误导：写着“水电”，可能只含小家电安装，不含全屋水电改造。[^c01-18]",
+         "id": "s1.2-pitfalls-1-1"
+        },
+        {
+         "text": "常见的“不包含”：全屋定制（只含橱柜）、超出数量的水电点位、复杂吊顶造型、海棠角。[^c01-19]",
+         "id": "s1.2-pitfalls-1-2"
+        },
+        {
+         "text": "合同约定的品牌可能被换掉，要写到型号。[^c01-20]",
+         "id": "s1.2-pitfalls-1-3"
+        },
+        {
+         "text": "没有变更时结算能不能超过预算，各地合同写法不同，要问清楚。[^c01-21]",
+         "id": "s1.2-pitfalls-1-4"
+        },
+        {
+         "text": "旧房的“一价全包”可能不含拆旧，开工后才提出来。[^c01-22]",
+         "id": "s1.2-pitfalls-1-5"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s1.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "每个类目下面具体包括哪些项目？",
+         "id": "s1.2-questions-1-1"
+        },
+        {
+         "text": "点位、面积这类有数量的项目，超出部分怎么计价？",
+         "id": "s1.2-questions-1-2"
+        },
+        {
+         "text": "全屋定制、家电是否包含？具体是哪几件？",
+         "id": "s1.2-questions-1-3"
+        },
+        {
+         "text": "赠送项目有没有单独的清单？",
+         "id": "s1.2-questions-1-4"
+        },
+        {
+         "text": "损耗、运输、税费是单独列，还是已经算进单价？",
+         "id": "s1.2-questions-1-5"
+        },
+        {
+         "text": "没有变更时，结算最多能超过预算多少？",
+         "id": "s1.2-questions-1-6"
+        }
+       ],
+       "kind": "questions",
+       "id": "s1.2-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "附工艺和用料说明的预算单，写到型号的材料清单，赠送项目清单。",
+       "kind": "documents",
+       "id": "s1.2-documents-1"
+      }
+     ]
+    },
+    {
+     "id": "s1.3",
+     "number": "1.3",
+     "title": "拆除、清运和其他费用",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "施工方只负责把垃圾清到物业指定点，运出小区的费用通常要另外约定。[^c01-23]",
+         "id": "s1.3-pitfalls-1-1"
+        },
+        {
+         "text": "报价里没写搬运费、水平运输费、管理费，不等于这些费用不收。[^c01-24]",
+         "id": "s1.3-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s1.3-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "拆除、外运、搬运、管理费各是多少，还是已经包含在总价里？",
+         "id": "s1.3-questions-1-1"
+        },
+        {
+         "text": "成品保护由谁做，保护哪些部位？",
+         "id": "s1.3-questions-1-2"
+        },
+        {
+         "text": "物业押金和管理费由谁出？",
+         "id": "s1.3-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s1.3-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s1.4",
+     "number": "1.4",
+     "title": "设计费",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "text": "“免费设计”可能只做到平面方案，后面的设计费也可能已经算进报价或管理费。所以要问清设计费**算在哪里**。[^c01-25]",
+       "kind": "text",
+       "id": "s1.4-text-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "签合同前交的意向金、设计费最容易起纠纷，交钱时写明这笔钱对应什么、能不能退。[^c01-26]",
+         "id": "s1.4-pitfalls-1-1"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s1.4-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "交付哪些图纸（平面、顶面、立面、水电），什么时候交？",
+         "id": "s1.4-questions-1-1"
+        },
+        {
+         "text": "图纸是否逐页签字？之后改设计怎么收费？",
+         "id": "s1.4-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s1.4-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s1.5",
+     "number": "1.5",
+     "title": "旧房和住着装修",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "承重结构、防水层、燃气暖气管道、外立面，有的禁止改，有的要先审批。[^c01-27]",
+         "id": "s1.5-pitfalls-1-1"
+        },
+        {
+         "text": "设计里有拆改承重墙，你又签字同意了，出了事你和公司都要担责。[^c01-28]",
+         "id": "s1.5-pitfalls-1-2"
+        },
+        {
+         "text": "二手房开工前先查前业主有没有拆改过。[^c01-29]",
+         "id": "s1.5-pitfalls-1-3"
+        },
+        {
+         "text": "拆改暖气、防水层出了问题，可能连累楼下；你先对邻居负责，再向公司追偿。[^c01-30]",
+         "id": "s1.5-pitfalls-1-4"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s1.5-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "方案是否涉及结构、防水、燃气、暖气？审批由谁去办？",
+         "id": "s1.5-questions-1-1"
+        },
+        {
+         "text": "小区允许施工的时间是什么？",
+         "id": "s1.5-questions-1-2"
+        },
+        {
+         "text": "拆旧后发现基层要修补，怎么计价？",
+         "id": "s1.5-questions-1-3"
+        },
+        {
+         "text": "住在里面施工的话，怎么隔离？物品由谁保护？",
+         "id": "s1.5-questions-1-4"
+        }
+       ],
+       "kind": "questions",
+       "id": "s1.5-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "物业装修管理服务协议，涉及结构或管道改动时的审批文件，原始结构图。",
+       "kind": "documents",
+       "id": "s1.5-documents-1"
+      }
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "code": "静海法院",
+     "text": "《说好13万元全包 水电改造又要加钱》，今晚报，2026-10-12（天津静海区法院判决）",
+     "link": "[今晚报数字报](https://jinwanbaoepaper.enorth.com.cn/jwb/html/2026-10/12/content_87653_3907773.htm)"
+    },
+    {
+     "code": "法治日报-家装乱象",
+     "text": "《家装乱象调查：低价引流、恶意增项、拖延工期，合同“埋深坑”》，法治日报，2025-11-22",
+     "link": "[澎湃新闻转载](https://www.thepaper.cn/newsDetail_forward_32020018)"
+    },
+    {
+     "code": "人民日报-家装调查",
+     "text": "《家装的“坑”，如何“避”如何“治”》，人民日报，2025-08-29",
+     "link": "[新华网转载](http://xinhuanet.com/house/20250829/138a9a55936a417f92d2ae81eff0720a/c.html)"
+    },
+    {
+     "code": "静安法院",
+     "text": "《私拆承重墙被罚，谁担责？》，上海静安法院，2025-08",
+     "link": "[iCourt 转载](https://www.icourt.cc/prac-document/586.html)"
+    },
+    {
+     "code": "海淀-三案",
+     "text": "《房屋泡水、逾期竣工、甲醛超标 业主起诉装修公司，哪些该赔？》，海淀法院，2024-10-31",
+     "link": "[北京日报“北京号”](https://peking.bjd.com.cn/content/s672349d7e4b020cee4825539.html)"
+    }
+   ]
+  },
+  {
+   "id": "ch2",
+   "number": "2",
+   "title": "筛公司",
+   "intro": [
+    "先筛掉明显有问题的，再比剩下几家的方案和报价。公司那边也有一套营销流程在筛客户（见 2.3）。[^c23-1]"
+   ],
+   "sections": [
+    {
+     "id": "s2.1",
+     "number": "2.1",
+     "title": "核对签约主体",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "要查的是**签合同、收款的那家公司**，它和广告上的名字可能对不上。[^c23-2]",
+       "kind": "points",
+       "id": "s2.1-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "宣传叫“某某装饰”，签约的可能是一家名字不同的科技公司，或者借用知名品牌标识的小公司。[^c23-3]",
+         "id": "s2.1-pitfalls-1-1"
+        },
+        {
+         "text": "签约的公司、收款的账户、实际施工的人，可能各是各的。[^c23-4]",
+         "id": "s2.1-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s2.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "合同上公司的全称和统一社会信用代码是什么？收款账户是不是这家公司的？",
+         "id": "s2.1-questions-1-1"
+        },
+        {
+         "text": "这家公司成立多久？有没有经营异常、被执行、失信记录？[^c23-5]",
+         "id": "s2.1-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s2.1-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s2.2",
+     "number": "2.2",
+     "title": "资质和经营条件",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "涉及结构、防水、燃气暖气改动的，必须委托有相应资质的企业。[^c23-6]",
+       "kind": "points",
+       "id": "s2.2-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "看着像大品牌，甚至在大品牌门店里签约，签约方也未必是品牌方。[^c23-3]",
+         "id": "s2.2-pitfalls-1-1"
+        },
+        {
+         "text": "展厅大、样板间多说明不了实力，场地多是租的，展品多是供应商赞助的。[^c23-7]",
+         "id": "s2.2-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s2.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "物业申报需要资质证书复印件，公司能提供吗？[^c23-6]",
+         "id": "s2.2-questions-1-1"
+        },
+        {
+         "text": "合同盖的章，和营业执照上的名字一致吗？[^c23-8]",
+         "id": "s2.2-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s2.2-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s2.3",
+     "number": "2.3",
+     "title": "营销话术",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "低价全包、免费设计、限时特惠、“零增项”，是消协点名的引流方式。[^c23-9]",
+         "id": "s2.3-pitfalls-1-1"
+        },
+        {
+         "text": "带你看展厅、讲优惠活动、催你当场交定金，是事先设计好的一套流程。当场交钱可以拒绝。[^c23-1]",
+         "id": "s2.3-pitfalls-1-2"
+        },
+        {
+         "text": "“顶级设计师”“国际认证”、刷出来的好评，要另找渠道核实。[^c23-10]",
+         "id": "s2.3-pitfalls-1-3"
+        },
+        {
+         "text": "“我们的工人都是自己的”多半是营销说法。该问的是工人怎么结算、出了问题谁负责。[^c23-11]",
+         "id": "s2.3-pitfalls-1-4"
+        },
+        {
+         "text": "网上搜到的装修攻略很多是软文，包括带价格的“推荐”“排名”。[^c23-12]",
+         "id": "s2.3-pitfalls-1-5"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s2.3-pitfalls-1"
+      }
+     ]
+    },
+    {
+     "id": "s2.4",
+     "number": "2.4",
+     "title": "看工地和已交付案例",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "样板间看不出施工水平，要看**正在施工**的工地，最好自己找，别只看公司安排的。[^c23-13]",
+       "kind": "points",
+       "id": "s2.4-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "公司发来的工地照片和视频，代替不了自己去现场看。[^c23-14]",
+         "id": "s2.4-pitfalls-1-1"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s2.4-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "能不能去看一个正在做水电或瓦工的工地？能不能不提前通知？",
+         "id": "s2.4-questions-1-1"
+        },
+        {
+         "text": "能不能联系已经入住一两年的业主？",
+         "id": "s2.4-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s2.4-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "看什么",
+       "text": "材料堆得整不整齐，现场干不干净，水电有没有拍照留底，工人干活认不认真。[^c23-15]",
+       "kind": "other",
+       "id": "s2.4-other-1"
+      }
+     ]
+    }
+   ],
+   "sources": []
+  },
+  {
+   "id": "ch3",
+   "number": "3",
+   "title": "谁来施工",
+   "intro": [
+    "合同签给装修公司，实际干活的是施工经理（工长）和他带的工人，工地做得好不好主要看施工经理。[^c23-16]"
+   ],
+   "sections": [
+    {
+     "id": "s3.1",
+     "number": "3.1",
+     "title": "施工负责人和分包",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "要点",
+       "ordered": false,
+       "items": [
+        {
+         "text": "合同里写明**施工负责人**的姓名和电话。[^c23-17]",
+         "id": "s3.1-points-1-1"
+        },
+        {
+         "text": "合同签给公司，工长的行为由公司负责。[^c23-18]",
+         "id": "s3.1-points-1-2"
+        }
+       ],
+       "kind": "points",
+       "id": "s3.1-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "不要把钱直接给工长或私下谈增项，出了问题公司可以不认。[^c23-19]",
+         "id": "s3.1-pitfalls-1-1"
+        },
+        {
+         "text": "前期报价压得低，工长接手后不是找你加钱，就是在材料和工艺上省。[^c23-20]",
+         "id": "s3.1-pitfalls-1-2"
+        },
+        {
+         "text": "公司可能把工程转包给没有资质的包工头。[^c23-21]",
+         "id": "s3.1-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s3.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "施工负责人是谁？中途能不能换？换人要不要经过我同意？",
+         "id": "s3.1-questions-1-1"
+        },
+        {
+         "text": "有没有转包、分包？哪些项目由其他人做（例如定制、门窗、燃气）？",
+         "id": "s3.1-questions-1-2"
+        },
+        {
+         "text": "增项单和收款，必须走公司吗？",
+         "id": "s3.1-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s3.1-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s3.2",
+     "number": "3.2",
+     "title": "进度和沟通",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "要一份**施工进度表**，写明每个节点什么时候验收、你要什么时候到场。[^c23-22]",
+       "kind": "points",
+       "id": "s3.2-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "一家公司同时接的工地太多，工期只能往后拖。[^c23-23]",
+         "id": "s3.2-pitfalls-1-1"
+        },
+        {
+         "text": "设计师、工长、工人之间的转达容易出错，特殊约定要自己盯。[^c23-24]",
+         "id": "s3.2-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s3.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "每个阶段谁通知我验收？提前几天通知？",
+         "id": "s3.2-questions-1-1"
+        },
+        {
+         "text": "有没有固定的沟通群和联系人？现场改动怎么确认？",
+         "id": "s3.2-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s3.2-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s3.3",
+     "number": "3.3",
+     "title": "要不要请第三方监理",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "监理可以帮你审预算、陪签合同、做节点验收，不过各家水平差得很远。[^c23-25]",
+       "kind": "points",
+       "id": "s3.3-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "公司自己配的质检或工程管家，主要为公司服务。[^c23-26]",
+         "id": "s3.3-pitfalls-1-1"
+        },
+        {
+         "text": "监理主动给你推荐装修公司的，要小心。[^c23-25]",
+         "id": "s3.3-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s3.3-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "监理是独立的第三方吗？和装修公司有没有关系？",
+         "id": "s3.3-questions-1-1"
+        },
+        {
+         "text": "包括哪些服务：审预算、陪签、几次验收？",
+         "id": "s3.3-questions-1-2"
+        },
+        {
+         "text": "监理合同由谁签、费用谁出、职责怎么写？[^c23-27]",
+         "id": "s3.3-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s3.3-questions-1"
+      }
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "code": "南充跑路",
+     "text": "《四川南充一装修公司收钱后人去楼空，上百业主装修停工》，极目新闻，2024-02-06",
+     "link": "[腾讯新闻](https://news.qq.com/rain/a/20240206A08UUN00)"
+    },
+    {
+     "code": "银川-注销",
+     "text": "《工程停工 公司注销 银川业主装修遇上“烂尾坑”咋维权？》，2026-10-12",
+     "link": "[凤凰网大风号](https://feng.ifeng.com/c/8x9z1mqf0Tk)"
+    },
+    {
+     "code": "法治日报-家装乱象",
+     "text": "《家装乱象调查：低价引流、恶意增项、拖延工期，合同“埋深坑”》，法治日报，2025-11-22",
+     "link": "[澎湃新闻转载](https://www.thepaper.cn/newsDetail_forward_32020018)"
+    }
+   ]
+  },
+  {
+   "id": "ch4",
+   "number": "4",
+   "title": "比报价",
+   "intro": [
+    "几家报价的项目和数量对齐了，总价才有可比性。[^c4-1]"
+   ],
+   "sections": [
+    {
+     "id": "s4.1",
+     "number": "4.1",
+     "title": "对齐项目和数量",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "要点",
+       "ordered": false,
+       "items": [
+        {
+         "text": "报价单通常按房间排列，看着项目很全，却很难对比。按施工顺序逐项对照，更容易发现漏了什么（见 4.4）。[^c4-2]",
+         "id": "s4.1-points-1-1"
+        },
+        {
+         "text": "每一项都要看清**单位、数量、单价**。只写总价、不写数量的项，后面最容易加钱。",
+         "id": "s4.1-points-1-2"
+        }
+       ],
+       "kind": "points",
+       "id": "s4.1-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "签约前就要拿到按**最终确认方案**出的详细清单。先让你签字、说详细清单“明天再送”的，后面容易加项。[^c4-3]",
+         "id": "s4.1-pitfalls-1-1"
+        },
+        {
+         "text": "面积、米数、点位数可以自己量、自己数。有业主自己量过，美缝米数最后减了一半。[^c4-4]",
+         "id": "s4.1-pitfalls-1-2"
+        },
+        {
+         "text": "消协调查里最常见的报价问题，是项目拆得过细、重复收费。[^c4-5]",
+         "id": "s4.1-pitfalls-1-3"
+        },
+        {
+         "text": "报价单上的面积、数量要按实测；“面积算少了”是开工后补款最常见的理由之一。[^c4-6]",
+         "id": "s4.1-pitfalls-1-4"
+        },
+        {
+         "text": "报价明显比其他几家低的，差价往往会在增项里补回来。[^c4-7]",
+         "id": "s4.1-pitfalls-1-5"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s4.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "这份报价是按哪一稿方案做的？",
+         "id": "s4.1-questions-1-1"
+        },
+        {
+         "text": "每一项的数量是怎么算出来的？实际施工时多出来的部分怎么计价？",
+         "id": "s4.1-questions-1-2"
+        },
+        {
+         "text": "有没有只写总价、没写数量的项目？",
+         "id": "s4.1-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s4.1-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s4.2",
+     "number": "4.2",
+     "title": "材料写到型号",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "只写品牌不够，要写到**品牌、系列、型号、规格、数量**。同一个品牌，不同系列价格可能差好几倍。[^c4-8]",
+       "kind": "points",
+       "id": "s4.2-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "先签合同、后选主材，签完常会发现看得上的款式都要加钱。主材要在签约前选到型号。[^c4-9]",
+         "id": "s4.2-pitfalls-1-1"
+        },
+        {
+         "text": "约定的品牌可能被换掉，要写明可以接受哪些替代品。[^c4-10]",
+         "id": "s4.2-pitfalls-1-2"
+        },
+        {
+         "text": "材料到场时对照清单验收，型号不对当场拒收。[^c4-11]",
+         "id": "s4.2-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s4.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "每种材料是否写到型号和规格？",
+         "id": "s4.2-questions-1-1"
+        },
+        {
+         "text": "缺货时用什么替代？由谁确认？",
+         "id": "s4.2-questions-1-2"
+        },
+        {
+         "text": "套餐里的标配款是哪几款？能否先看实物？",
+         "id": "s4.2-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s4.2-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s4.3",
+     "number": "4.3",
+     "title": "工艺做法",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "每个项目都应附**工艺做法和用料说明**，并写明哪些情况会“另计”。[^c4-12]",
+       "kind": "points",
+       "id": "s4.3-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "做法说明里常有“超过某厚度另报”“斜铺另计”“拉缝加收”这类条件，签约前要逐条看。[^c4-13]",
+         "id": "s4.3-pitfalls-1-1"
+        },
+        {
+         "text": "瓷砖铺贴价通常按某个规格起步，大砖、小砖、上墙都可能加钱。[^c4-14]",
+         "id": "s4.3-pitfalls-1-2"
+        },
+        {
+         "text": "防水高度、找平厚度、墙面找平标准不写清楚，施工方容易按最低标准做。[^c4-15]",
+         "id": "s4.3-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s4.3-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "每一项写了哪些“另计”条件？",
+         "id": "s4.3-questions-1-1"
+        },
+        {
+         "text": "防水刷多高？找平按多厚报价？墙面做到什么平整标准？",
+         "id": "s4.3-questions-1-2"
+        },
+        {
+         "text": "瓷砖铺贴价按什么规格起步？我选的规格要不要加钱？",
+         "id": "s4.3-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s4.3-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s4.4",
+     "number": "4.4",
+     "title": "易漏项和“按实际发生”",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "下面这些项目最常被漏报或低报，对着自己的报价逐项找。[^c4-2]",
+       "kind": "points",
+       "id": "s4.4-points-1"
+      },
+      {
+       "type": "table",
+       "header": [
+        "阶段",
+        "常见漏项"
+       ],
+       "items": [
+        {
+         "cells": [
+          "拆旧",
+          "垃圾外运、短驳费、上楼费、电梯保护；旧地面和墙砖拆除后的修补；老房墙面铲到红砖重新粉刷"
+         ],
+         "id": "s4.4-text-1-1"
+        },
+        {
+         "cells": [
+          "土建",
+          "地面找平超厚；新砌墙的植筋、挂网、双面粉刷；卫生间地梁、挡水坎、门头过梁"
+         ],
+         "id": "s4.4-text-1-2"
+        },
+        {
+         "cells": [
+          "水电",
+          "入户线、强电箱；点位数量；开槽补槽和暗盒是否另算；线径；面板及安装；零线；水管米数；下水改造；地暖和中央空调配套"
+         ],
+         "id": "s4.4-text-1-3"
+        },
+        {
+         "cells": [
+          "瓦工",
+          "瓷砖规格起步价；粘接剂；倒角、对缝；窗台石、过门石；美缝；包管、壁龛"
+         ],
+         "id": "s4.4-text-1-4"
+        },
+        {
+         "cells": [
+          "木工",
+          "吊顶数量和造型；窗帘盒；空调风口；灯具开孔"
+         ],
+         "id": "s4.4-text-1-5"
+        },
+        {
+         "cells": [
+          "油漆",
+          "墙面找平标准；网格布；调色数量"
+         ],
+         "id": "s4.4-text-1-6"
+        },
+        {
+         "cells": [
+          "杂费",
+          "管理费、税金、设计费、保洁费"
+         ],
+         "id": "s4.4-text-1-7"
+        }
+       ],
+       "kind": "text",
+       "id": "s4.4-text-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "合同写了“一价全包”或者“加价不超过 5%”，开工后照样可能不断增项。签约前把漏项补进清单，才真正管用。[^c4-16]",
+         "id": "s4.4-pitfalls-1-1"
+        },
+        {
+         "text": "“按实际发生结算”要配一个上限，并写明增项必须先书面确认才能施工（见第 5 章）。[^c4-17]",
+         "id": "s4.4-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s4.4-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "上表各项是否都在报价里？不在的，是不需要做，还是没算进去？",
+         "id": "s4.4-questions-1-1"
+        },
+        {
+         "text": "结算能超出预算多少？超出部分谁承担？",
+         "id": "s4.4-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s4.4-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s4.5",
+     "number": "4.5",
+     "title": "半包和全包怎么比",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "要点",
+       "ordered": false,
+       "items": [
+        {
+         "text": "半包报价不含主材，比较时要把自己买主材的钱加上，再和全包比。",
+         "id": "s4.5-points-1-1"
+        },
+        {
+         "text": "全包要看套餐标配的是什么，再把你实际想要的升级项加上。[^c4-9]",
+         "id": "s4.5-points-1-2"
+        },
+        {
+         "text": "先定方案，再对项目、选材料，最后签合同。[^c4-9]",
+         "id": "s4.5-points-1-3"
+        }
+       ],
+       "kind": "points",
+       "id": "s4.5-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "全包套餐里没逐项写明的五金、灯带等，收尾时可能被说成“不在全包范围”。[^c4-18]",
+         "id": "s4.5-pitfalls-1-1"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s4.5-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "半包：我要买的主材清单有哪些？施工方负责哪些辅材？",
+         "id": "s4.5-questions-1-1"
+        },
+        {
+         "text": "全包：哪些是标配，哪些要加钱？我选的款式算标配还是升级？",
+         "id": "s4.5-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s4.5-questions-1"
+      }
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "code": "法治日报-家装乱象",
+     "text": "《家装乱象调查：低价引流、恶意增项、拖延工期，合同“埋深坑”》，法治日报，2025-11-22",
+     "link": "[澎湃新闻转载](https://www.thepaper.cn/newsDetail_forward_32020018)"
+    },
+    {
+     "code": "人民日报-家装调查",
+     "text": "《家装的“坑”，如何“避”如何“治”》，人民日报，2025-08-29",
+     "link": "[新华网转载](http://xinhuanet.com/house/20250829/138a9a55936a417f92d2ae81eff0720a/c.html)"
+    }
+   ]
+  },
+  {
+   "id": "ch5",
+   "number": "5",
+   "title": "核合同",
+   "intro": [
+    "签合同前，把前几章谈好的东西都写进合同或附件。只是口头答应的，出了纠纷很难证明。[^c5-1]"
+   ],
+   "sections": [
+    {
+     "id": "s5.1",
+     "number": "5.1",
+     "title": "定金、意向金和首付款",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "“定金”和“订金”不一样：定金你违约一般不退，订金可以协商退。[^c5-2]",
+         "id": "s5.1-pitfalls-1-1"
+        },
+        {
+         "text": "方案、预算、施工内容都没确定时，不要交大额费用。[^c5-3]",
+         "id": "s5.1-pitfalls-1-2"
+        },
+        {
+         "text": "“几天内不满意全退”的定金，对方可能拖过退款期限再出图。[^c5-4]",
+         "id": "s5.1-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "这笔钱叫什么？对应什么服务？什么情况下可以退？",
+         "id": "s5.1-questions-1-1"
+        },
+        {
+         "text": "有没有正式收据或发票，收款方是谁？",
+         "id": "s5.1-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.1-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.2",
+     "number": "5.2",
+     "title": "付款节点",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "每一笔钱都对应一个**验收通过**的节点，不按日期或“进场”付。各地示范文本给出了首付和尾款的建议比例，可以作为谈判参照。[^c5-5]",
+       "kind": "points",
+       "id": "s5.2-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "消协调查和政府报道里，首付比例过高是常见的投诉。[^c5-6]",
+         "id": "s5.2-pitfalls-1-1"
+        },
+        {
+         "text": "有的付款节点写的是“开工时”，还没验收就要付第二笔。[^c5-7]",
+         "id": "s5.2-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "不同说法",
+       "ordered": false,
+       "items": [
+        {
+         "text": "示范文本设有竣工后留一部分质保金的条款；也有从业者认为家装付款比例由公司定、很难谈，留质保金不是行业通行做法。[^c5-8]",
+         "id": "s5.2-differing-1-1"
+        }
+       ],
+       "kind": "differing",
+       "id": "s5.2-differing-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "每一期付款对应哪一项验收？验收不通过怎么办？",
+         "id": "s5.2-questions-1-1"
+        },
+        {
+         "text": "能不能留质保金？留多少、多久后支付？",
+         "id": "s5.2-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.2-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.3",
+     "number": "5.3",
+     "title": "预付款和资金存管",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "钱付了、活还没做的那部分，公司一旦跑路就很难追回。[^c5-9]",
+       "kind": "points",
+       "id": "s5.3-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "用“预交越多折扣越大”吸引预付款的，要格外小心。[^c5-10]",
+         "id": "s5.3-pitfalls-1-1"
+        },
+        {
+         "text": "公司出现停工、换人、改名、联系不上等迹象时，可以先暂停后续付款。[^c5-11]",
+         "id": "s5.3-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.3-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "是否支持银行资金存管？存管协议由谁签，放款要谁确认？[^c5-12]",
+         "id": "s5.3-questions-1-1"
+        },
+        {
+         "text": "签约公司在信用公示系统、执行信息公开网上有没有异常或被执行记录？[^c5-13]",
+         "id": "s5.3-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.3-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.4",
+     "number": "5.4",
+     "title": "变更和增项",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "任何增项都要**先书面确认、再施工**，并写明怎么计价。[^c5-14]",
+       "kind": "points",
+       "id": "s5.4-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "合同里约定了“变更须书面确认”，没签字的增项，法院支持业主不付。[^c5-15]",
+         "id": "s5.4-pitfalls-1-1"
+        },
+        {
+         "text": "只写“按实际发生结算”而没有上限，等于把解释权交给对方。[^c5-16]",
+         "id": "s5.4-pitfalls-1-2"
+        },
+        {
+         "text": "被迫付了增项的，在收据上写明“不再增加项目和费用”。[^c5-17]",
+         "id": "s5.4-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.4-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "增项通过什么形式确认（纸质变更单、微信文字）？谁签字有效？",
+         "id": "s5.4-questions-1-1"
+        },
+        {
+         "text": "增项单价按什么算：沿用报价单单价，还是重新报价？[^c5-18]",
+         "id": "s5.4-questions-1-2"
+        },
+        {
+         "text": "结算总价最多能超出预算多少？",
+         "id": "s5.4-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.4-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "工程变更单模板（写明变更内容、原价、新价、工期变化，双方签字）。[^c5-14]",
+       "kind": "documents",
+       "id": "s5.4-documents-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.5",
+     "number": "5.5",
+     "title": "自购材料",
+     "tags": [
+      "半包"
+     ],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "text": "第 1.1 节的约定要写进合同正文或附件：**供料时间表、到场共同验收、晚到或不合格时的工期和费用**。[^c5-19]",
+       "kind": "text",
+       "id": "s5.5-text-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.6",
+     "number": "5.6",
+     "title": "工期和违约金",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "要点",
+       "ordered": false,
+       "items": [
+        {
+         "text": "写清楚工期按**自然日还是工作日**、从哪天起算、哪些情况可以顺延。[^c5-20]",
+         "id": "s5.6-points-1-1"
+        },
+        {
+         "text": "业主自己没付款、没验收、改方案、材料没到导致的延期，一般由业主承担。[^c5-21]",
+         "id": "s5.6-points-1-2"
+        }
+       ],
+       "kind": "points",
+       "id": "s5.6-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "工期违约金和付款违约金不对等的合同，签约前要改。[^c5-22]",
+         "id": "s5.6-pitfalls-1-1"
+        },
+        {
+         "text": "装修公司逾期，法院支持按约定计逾期违约金；租房等其他损失要有证据。[^c5-23]",
+         "id": "s5.6-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.6-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "不同说法",
+       "ordered": false,
+       "items": [
+        {
+         "text": "有从业者认为，家装违约金通常每天几十到一两百元，很难谈高，不如把工期留宽一点；黑龙江示范文本则给出了按合同总价每日计算的建议区间。[^c5-24]",
+         "id": "s5.6-differing-1-1"
+        }
+       ],
+       "kind": "differing",
+       "id": "s5.6-differing-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "工期从哪天起算？逾期一天赔多少？累计超过多少天可以解约？",
+         "id": "s5.6-questions-1-1"
+        },
+        {
+         "text": "我自己买的材料、设备安装，算不算在工期里？",
+         "id": "s5.6-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.6-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.7",
+     "number": "5.7",
+     "title": "解约、结算和转包",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "合同签给公司，工长跑了也由公司负责；签给个人，就只能找个人。[^c5-25]",
+         "id": "s5.7-pitfalls-1-1"
+        },
+        {
+         "text": "解约违约金，示范文本的建议值是开工前不超过合同总价的 5%、施工中 5%–10%，明显高于这个的要谈。[^c5-26]",
+         "id": "s5.7-pitfalls-1-2"
+        },
+        {
+         "text": "合同应写明不得转包、未经同意不得分包。[^c5-27]",
+         "id": "s5.7-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.7-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "开工前、施工中分别解约，违约金怎么算？已完工部分怎么结算？",
+         "id": "s5.7-questions-1-1"
+        },
+        {
+         "text": "能否写明禁止转包，违反了怎么赔？",
+         "id": "s5.7-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.7-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.8",
+     "number": "5.8",
+     "title": "签约主体、签章和附件",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "宣传的公司和签约的公司可能不是同一家，有的小公司还会借用知名品牌的标识。[^c5-28]",
+         "id": "s5.8-pitfalls-1-1"
+        },
+        {
+         "text": "设计师私下的安排（例如“剩下的钱我帮你采购”），没写进补充协议的，出了事很难追。[^c5-4]",
+         "id": "s5.8-pitfalls-1-2"
+        },
+        {
+         "text": "合同里有“竣工验收后不得再主张任何权利”这类条款，等于免掉了保修责任。[^c5-29]",
+         "id": "s5.8-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.8-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "合同上的公司全称、统一社会信用代码，和营业执照一致吗？收款账户是这家公司的吗？",
+         "id": "s5.8-questions-1-1"
+        },
+        {
+         "text": "所有优惠和口头承诺都写进合同或补充协议了吗？盖章了吗？",
+         "id": "s5.8-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.8-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "合同应包含这些附件：施工图纸、预算单、双方材料清单、赠送项目清单、工程变更单、验收单、结算单、保修单。[^c5-30]",
+       "kind": "documents",
+       "id": "s5.8-documents-1"
+      }
+     ]
+    },
+    {
+     "id": "s5.9",
+     "number": "5.9",
+     "title": "装修分期和贷款",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "装修贷通常一次性打进装修公司账户，等于开工就付清了全款。[^c5-31]",
+         "id": "s5.9-pitfalls-1-1"
+        },
+        {
+         "text": "有公司会引导你多贷，多出来的钱要几个月后才退。[^c5-31]",
+         "id": "s5.9-pitfalls-1-2"
+        },
+        {
+         "text": "公司跑路后，房子没装完，贷款还要继续还。[^c5-32]",
+         "id": "s5.9-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s5.9-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "贷款打给谁？能不能按施工进度分批放款？",
+         "id": "s5.9-questions-1-1"
+        },
+        {
+         "text": "能不能只贷实际工程款？",
+         "id": "s5.9-questions-1-2"
+        },
+        {
+         "text": "公司停工或倒闭时，贷款怎么处理？",
+         "id": "s5.9-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s5.9-questions-1"
+      }
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "code": "法治日报-跑路",
+     "text": "《还没动工，装修公司就跑路了 记者揭秘装修预付费陷阱》，法治日报 2024-06-06",
+     "link": "[光明网](https://legal.gmw.cn/2024-06/06/content_37365947.htm)"
+    },
+    {
+     "code": "法治日报-存管",
+     "text": "《家装预付资金安全困局如何破解》，法治日报 2025-11-22",
+     "link": "[中国新闻网](https://www.chinanews.com.cn/fz/2025/11-22/10519928.shtml)"
+    },
+    {
+     "code": "法治日报-家装乱象",
+     "text": "《家装乱象调查：低价引流、恶意增项、拖延工期，合同“埋深坑”》，法治日报，2025-11-22",
+     "link": "[澎湃新闻转载](https://www.thepaper.cn/newsDetail_forward_32020018)"
+    },
+    {
+     "code": "人民日报-家装调查",
+     "text": "《家装的“坑”，如何“避”如何“治”》，人民日报，2025-08-29",
+     "link": "[新华网转载](http://xinhuanet.com/house/20250829/138a9a55936a417f92d2ae81eff0720a/c.html)"
+    },
+    {
+     "code": "静海法院",
+     "text": "《说好13万元全包 水电改造又要加钱》，今晚报，2026-10-12（天津静海区法院判决）",
+     "link": "[今晚报数字报](https://jinwanbaoepaper.enorth.com.cn/jwb/html/2026-10/12/content_87653_3907773.htm)"
+    },
+    {
+     "code": "海淀-三案",
+     "text": "《房屋泡水、逾期竣工、甲醛超标 业主起诉装修公司，哪些该赔？》，海淀法院，2024-10-31",
+     "link": "[北京日报“北京号”](https://peking.bjd.com.cn/content/s672349d7e4b020cee4825539.html)"
+    },
+    {
+     "code": "南充跑路",
+     "text": "《四川南充一装修公司收钱后人去楼空，上百业主装修停工》，极目新闻，2024-02-06",
+     "link": "[腾讯新闻](https://news.qq.com/rain/a/20240206A08UUN00)"
+    }
+   ]
+  },
+  {
+   "id": "ch6",
+   "number": "6",
+   "title": "施工和验收",
+   "intro": [
+    "每个阶段验收合格、你签了字，再进入下一阶段、付下一笔钱。[^c6-1]"
+   ],
+   "sections": [
+    {
+     "id": "s6.1",
+     "number": "6.1",
+     "title": "材料进场验收",
+     "tags": [
+      "半包重点"
+     ],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "材料到场前要通知对方，双方在现场对照清单核对品牌、型号、规格、数量，并签交接记录。[^c6-2]",
+       "kind": "points",
+       "id": "s6.1-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "你买的材料，施工方说不合格，你又书面同意继续用的，出了问题由你承担。[^c6-3]",
+         "id": "s6.1-pitfalls-1-1"
+        },
+        {
+         "text": "公司供的材料与约定不符，你有权禁止使用、要求更换。[^c6-4]",
+         "id": "s6.1-pitfalls-1-2"
+        },
+        {
+         "text": "合同写“某品牌或同等档次”的，后期可能以缺货为由换成别的产品，进场时要逐项核对。[^c6-5]",
+         "id": "s6.1-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s6.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "每批材料谁通知我、提前几天？我不在时谁代签？",
+         "id": "s6.1-questions-1-1"
+        },
+        {
+         "text": "公司供的材料有没有合格证和检测报告？[^c6-6]",
+         "id": "s6.1-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s6.1-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "材料交接或验收记录（品牌、型号、数量、签字）。",
+       "kind": "documents",
+       "id": "s6.1-documents-1"
+      }
+     ]
+    },
+    {
+     "id": "s6.2",
+     "number": "6.2",
+     "title": "分阶段验收",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "一般分四次验收：**水电（隐蔽工程）、木瓦、油漆、竣工**。每次签验收单，付款节点跟着验收走。[^c6-7]",
+       "kind": "points",
+       "id": "s6.2-points-1"
+      },
+      {
+       "type": "paragraph",
+       "text": "每个阶段你自己也能查几项：",
+       "kind": "text",
+       "id": "s6.2-text-1"
+      },
+      {
+       "type": "table",
+       "header": [
+        "阶段",
+        "自己可以查"
+       ],
+       "items": [
+        {
+         "cells": [
+          "水电",
+          "拿图纸逐个对开关、插座和水路点位；水管做打压测试 [^c6-8]"
+         ],
+         "id": "s6.2-text-2-1"
+        },
+        {
+         "cells": [
+          "防水",
+          "闭水试验放满水 48 小时，请物业到楼下看顶棚 [^c6-9]"
+         ],
+         "id": "s6.2-text-2-2"
+        },
+        {
+         "cells": [
+          "瓦工",
+          "用空鼓锤敲砖，重点敲墙砖四角和窗洞四周 [^c6-10]"
+         ],
+         "id": "s6.2-text-2-3"
+        },
+        {
+         "cells": [
+          "油漆",
+          "用 2 米靠尺查墙面平整度，用激光水平仪查阴阳角 [^c6-11]"
+         ],
+         "id": "s6.2-text-2-4"
+        }
+       ],
+       "kind": "text",
+       "id": "s6.2-text-2"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "公司通知了验收，你在约定时间内既不去也不提异议，可能被视为验收合格。[^c6-12]",
+         "id": "s6.2-pitfalls-1-1"
+        },
+        {
+         "text": "没通知你就进入下一阶段的，你可以要求停工，损失由公司承担。[^c6-12]",
+         "id": "s6.2-pitfalls-1-2"
+        },
+        {
+         "text": "前一道工序没验收，下一道的工人不要进场。[^c6-13]",
+         "id": "s6.2-pitfalls-1-3"
+        },
+        {
+         "text": "水电完工后，你到现场签字确认了，再封槽、贴砖。[^c6-14]",
+         "id": "s6.2-pitfalls-1-4"
+        },
+        {
+         "text": "钱付早了，后面就管不住。有业主材料一进场就付清全款，之后工期一拖再拖，官司打赢了钱也难要回。[^c6-15]",
+         "id": "s6.2-pitfalls-1-5"
+        },
+        {
+         "text": "施工全程拍照录像，在微信群里沟通留痕；封槽前把管线走向拍下来，以后报修用得上。[^c6-16]",
+         "id": "s6.2-pitfalls-1-6"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s6.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "按哪个验收标准（国标、行标还是地方标准）？[^c6-17]",
+         "id": "s6.2-questions-1-1"
+        },
+        {
+         "text": "每次验收谁到场：工长、公司质检、我请的监理？",
+         "id": "s6.2-questions-1-2"
+        },
+        {
+         "text": "打压、闭水试验能不能等我到场再做？",
+         "id": "s6.2-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s6.2-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "每个阶段的验收单和对应的结算单，双方签字。[^c6-18]",
+       "kind": "documents",
+       "id": "s6.2-documents-1"
+      }
+     ]
+    },
+    {
+     "id": "s6.3",
+     "number": "6.3",
+     "title": "遗留问题",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "竣工时还有小问题，可以先签**遗留问题协议**再入住，写明问题、处理方法、责任、期限、费用。[^c6-19]",
+       "kind": "points",
+       "id": "s6.3-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "没验收就搬进去住，法院可能视为工程已交付，你还得付清剩余款项。[^c6-20]",
+         "id": "s6.3-pitfalls-1-1"
+        },
+        {
+         "text": "对方说问题“在允许误差范围内”不肯重做的，可以找市场监管部门调解。有业主定制家具验收时发现缝隙、尺寸偏差，调解后餐边柜重做。[^c6-21]",
+         "id": "s6.3-pitfalls-1-2"
+        },
+        {
+         "text": "对质量有争议、协商不成的，可以委托第三方检测，不合格的由公司承担检测和返工费用。[^c6-22]",
+         "id": "s6.3-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s6.3-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "遗留问题多久处理完？逾期不处理，能不能从尾款或质保金里扣？",
+         "id": "s6.3-questions-1-1"
+        }
+       ],
+       "kind": "questions",
+       "id": "s6.3-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s6.4",
+     "number": "6.4",
+     "title": "室内空气检测",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "合同里写明四件事：**是否纳入竣工验收、参照什么标准、谁委托检测机构、不合格怎么办**。[^c6-23]",
+       "kind": "points",
+       "id": "s6.4-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "一方单独委托的检测，对方可能不认，最好在公司人员在场时委托第三方检测。[^c6-24]",
+         "id": "s6.4-pitfalls-1-1"
+        },
+        {
+         "text": "公司治理后不及时复测，打官司时房租损失可能只被支持一部分。[^c6-25]",
+         "id": "s6.4-pitfalls-1-2"
+        },
+        {
+         "text": "合同写明空气质量要达标、写了违约责任的，法院支持赔偿，有判决返还部分装修款的。[^c6-26]",
+         "id": "s6.4-pitfalls-1-3"
+        },
+        {
+         "text": "返还装修款不一定包括主材款。[^c6-24]",
+         "id": "s6.4-pitfalls-1-4"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s6.4-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "竣工验收包不包括空气检测？检测费谁出？",
+         "id": "s6.4-questions-1-1"
+        },
+        {
+         "text": "不合格后多少天内治理完？违约金怎么算？治理后仍不达标怎么办？",
+         "id": "s6.4-questions-1-2"
+        }
+       ],
+       "kind": "questions",
+       "id": "s6.4-questions-1"
+      }
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "code": "黑龙江示范文本",
+     "text": "《黑龙江省家居装饰装修工程施工合同（试行）》HF-2025-02，第七、九、十、十一、十二章及附件 6、7、9",
+     "link": "[国家市场监督管理总局合同示范文本库](https://htsfwb.samr.gov.cn/View?id=791da923-1a00-4d42-a278-adb991e71f47)"
+    },
+    {
+     "code": "人民日报-家装调查",
+     "text": "《家装的“坑”，如何“避”如何“治”》，人民日报，2025-08-29",
+     "link": "[新华网转载](http://xinhuanet.com/house/20250829/138a9a55936a417f92d2ae81eff0720a/c.html)"
+    },
+    {
+     "code": "法治日报-家装乱象",
+     "text": "《家装乱象调查：低价引流、恶意增项、拖延工期，合同“埋深坑”》，法治日报，2025-11-22",
+     "link": "[澎湃新闻转载](https://www.thepaper.cn/newsDetail_forward_32020018)"
+    },
+    {
+     "code": "海淀-三案",
+     "text": "《房屋泡水、逾期竣工、甲醛超标 业主起诉装修公司，哪些该赔？》，海淀法院，2024-10-31",
+     "link": "[北京日报“北京号”](https://peking.bjd.com.cn/content/s672349d7e4b020cee4825539.html)"
+    },
+    {
+     "code": "海淀-空气治理",
+     "text": "《装修后因污染物超标在外租房住，要求装修公司赔偿相关损失，法院判了！》，中国普法，2025-02",
+     "link": "[司法部智慧普法平台](http://legalinfo.moj.gov.cn/zxxfyasf/202502/t20250227_514835.html)；[遂宁市经信局转载](https://sjxj.suining.gov.cn/zwgk/show/4c791bde5b59174d474584ef49df6aba.html)"
+    },
+    {
+     "code": "吉安中院",
+     "text": "《新房装修甲醛超标20倍？吉安中院判决装修公司返还40%装修款、赔偿约10万元》，大江网，2025-03-31",
+     "link": "[凤凰网江西](https://jx.ifeng.com/c/8i9X9LWLAU1)"
+    },
+    {
+     "code": "石景山",
+     "text": "《因装修甲醛超标引纠纷，石景山法院：司法保护居住生活环境》，澎湃新闻，2025-06-05",
+     "link": "[新浪财经转载](https://finance.sina.com.cn/jjxw/2025-06-05/doc-ineyyzva9393549.shtml)"
+    }
+   ]
+  },
+  {
+   "id": "ch7",
+   "number": "7",
+   "title": "交接与售后",
+   "intro": [
+    "保修期从竣工验收合格那天起算。交接时把资料拿齐，以后报修、维权都要用。[^c7-1]"
+   ],
+   "sections": [
+    {
+     "id": "s7.1",
+     "number": "7.1",
+     "title": "交接资料",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "竣工交接时要拿到这些资料。",
+       "kind": "points",
+       "id": "s7.1-points-1"
+      },
+      {
+       "type": "list",
+       "ordered": false,
+       "items": [
+        {
+         "text": "水电隐蔽工程改造图，以及封槽前拍的管线照片和视频[^c7-2]",
+         "id": "s7.1-text-1-1"
+        },
+        {
+         "text": "盖有公司财务专用章的收据或发票[^c7-2]",
+         "id": "s7.1-text-1-2"
+        },
+        {
+         "text": "双方签字的保修单[^c7-3]",
+         "id": "s7.1-text-1-3"
+        },
+        {
+         "text": "公司代购的材料和设备：说明书、保修单、环保说明书[^c7-4]",
+         "id": "s7.1-text-1-4"
+        },
+        {
+         "text": "各阶段验收单、结算单、变更单、遗留问题协议[^c7-5]",
+         "id": "s7.1-text-1-5"
+        }
+       ],
+       "kind": "text",
+       "id": "s7.1-text-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "约一半业主没拿到发票或付款凭证。[^c7-6]",
+         "id": "s7.1-pitfalls-1-1"
+        },
+        {
+         "text": "没经过验收就入住的，保修期可能从公司发出验收通知那天起算。[^c7-7]",
+         "id": "s7.1-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s7.1-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "水电图是按实际施工画的吗？和现场一致吗？",
+         "id": "s7.1-questions-1-1"
+        }
+       ],
+       "kind": "questions",
+       "id": "s7.1-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s7.2",
+     "number": "7.2",
+     "title": "保修期限和范围",
+     "tags": [
+      "半包重点"
+     ],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "国家规定的最低保修期：装修工程 **2 年**，有防水要求的厨房、卫生间和外墙面的防渗漏 **5 年**，都从竣工验收合格之日起算。合同可以约定得更长。[^c7-8]",
+       "kind": "points",
+       "id": "s7.2-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "你自己买的主材，公司通常只负责安装，不负责材料本身的质保。[^c7-9]",
+         "id": "s7.2-pitfalls-1-1"
+        },
+        {
+         "text": "自己后来改过管线、超负荷用电、冬季停暖冻裂、非正常使用造成的损坏，一般不在保修范围内。[^c7-10]",
+         "id": "s7.2-pitfalls-1-2"
+        },
+        {
+         "text": "合同里写“竣工验收后不得再主张任何权利”的，等于免除了保修责任，签之前划掉。[^c7-11]",
+         "id": "s7.2-pitfalls-1-3"
+        },
+        {
+         "text": "一半以上的受访业主反映商家不履行保修承诺。[^c7-12]",
+         "id": "s7.2-pitfalls-1-4"
+        },
+        {
+         "text": "签约时承诺“终身售后”，出了问题可能联系不上；公司一注销，保修也就没人管了。[^c7-13]",
+         "id": "s7.2-pitfalls-1-5"
+        },
+        {
+         "text": "过了保修期才出的问题，公司可以拒绝免费维修。有业主墙面在第 3 年开裂，公司以“只保 2 年”为由拒绝。[^c7-14]",
+         "id": "s7.2-pitfalls-1-6"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s7.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "不同说法",
+       "ordered": false,
+       "items": [
+        {
+         "text": "网上常说“水电隐蔽工程国家规定保修 5 年”。全国性规章只规定了防渗漏保 5 年；水电保 5 年是一些地方示范文本的建议值，写进合同才算数。[^c7-15]",
+         "id": "s7.2-differing-1-1"
+        }
+       ],
+       "kind": "differing",
+       "id": "s7.2-differing-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "防水、水电、基础装修、定制家具各保修几年？从哪天起算？",
+         "id": "s7.2-questions-1-1"
+        },
+        {
+         "text": "我自己买的材料安装出了问题，归谁保修？",
+         "id": "s7.2-questions-1-2"
+        },
+        {
+         "text": "公司代购的产品坏了，找公司还是直接找厂家？",
+         "id": "s7.2-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s7.2-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s7.3",
+     "number": "7.3",
+     "title": "报修和纠纷",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "报修要**留书面记录**，微信文字也可以。合同里写明接到报修后几天内上门，以及公司拒修时你可以找别人修、费用由公司承担。[^c7-16]",
+       "kind": "points",
+       "id": "s7.3-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "保修期快到时，自己全面检查一遍，有问题在到期前报修。[^c7-17]",
+         "id": "s7.3-pitfalls-1-1"
+        },
+        {
+         "text": "有公司拿售后要挟业主结尾款。尾款要不要付，先看合同的约定和质量问题有没有证据。[^c7-18]",
+         "id": "s7.3-pitfalls-1-2"
+        },
+        {
+         "text": "入住后发现质量问题，要拍照取证。证据充分的，法院可以从尾款里扣减损失。[^c7-19]",
+         "id": "s7.3-pitfalls-1-3"
+        },
+        {
+         "text": "在品牌家居门店签的装修合同，签约方可能只是借用门店场地的合作商；合作商撤店后，品牌方可以不管施工和售后。[^c7-20]",
+         "id": "s7.3-pitfalls-1-4"
+        },
+        {
+         "text": "公司已经注销的，可以起诉股东；进入破产程序的，要向破产管理人申报债权。[^c7-20]",
+         "id": "s7.3-pitfalls-1-5"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s7.3-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "纠纷处理顺序",
+       "ordered": true,
+       "items": [
+        {
+         "text": "先协商，保留聊天记录、报修记录、照片和视频。",
+         "id": "s7.3-other-1-1"
+        },
+        {
+         "text": "协商不成，找当地行业主管部门、消费者协会或市场监管部门调解，也可以打 12315 投诉。",
+         "id": "s7.3-other-1-2"
+        },
+        {
+         "text": "调解不成，申请仲裁或者起诉。仲裁和诉讼只能二选一，以合同里的约定为准。[^c7-21]",
+         "id": "s7.3-other-1-3"
+        }
+       ],
+       "kind": "other",
+       "id": "s7.3-other-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "纠纷处理顺序",
+       "text": "因房屋质量问题起诉的，诉讼时效一般是 3 年。[^c7-19]",
+       "kind": "other",
+       "id": "s7.3-other-2"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "合同和附件、保修单、报修记录、问题照片和视频、付款凭证。",
+       "kind": "documents",
+       "id": "s7.3-documents-1"
+      }
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "code": "管理办法",
+     "text": "《住宅室内装饰装修管理办法》（建设部令第 110 号，2011 年修正），第二十五、二十九至三十二条",
+     "link": "[中国政府网](https://www.gov.cn/zhengce/2002-03/05/content_5712023.htm)"
+    },
+    {
+     "code": "黑龙江示范文本",
+     "text": "第 10.4–10.9 条、第十五章，附件 2-2、附件 8《家装工程保修单》",
+     "link": "[国家市场监督管理总局合同示范文本库](https://htsfwb.samr.gov.cn/View?id=791da923-1a00-4d42-a278-adb991e71f47)"
+    },
+    {
+     "code": "法治日报-家装乱象",
+     "text": "《家装乱象调查：低价引流、恶意增项、拖延工期，合同“埋深坑”》，法治日报，2025-11-22",
+     "link": "[澎湃新闻转载](https://www.thepaper.cn/newsDetail_forward_32020018)"
+    },
+    {
+     "code": "蔡甸法院",
+     "text": "《以案释法丨遇到家装纠纷不要慌 法院教你怎么通过法律途径维权！》，武汉市司法局、蔡甸区人民法院，2023-11-20",
+     "link": "[湖北省司法厅](https://sft.hubei.gov.cn/sfxz/ztzl/pfyfzlzdgz/yasf/202312/t20231204_4986213.shtml)"
+    },
+    {
+     "code": "银川-注销",
+     "text": "《工程停工 公司注销 银川业主装修遇上“烂尾坑”咋维权？》，2026-10-12",
+     "link": "[凤凰网大风号](https://feng.ifeng.com/c/8x9z1mqf0Tk)"
+    }
+   ]
+  },
+  {
+   "id": "ch8",
+   "number": "8",
+   "title": "全屋智能（选做）",
+   "intro": [
+    "全屋智能和装修关系最大的是**墙里的线**：设备可以入住后再买，线一旦封进墙就很难改。[^c8-1]"
+   ],
+   "sections": [
+    {
+     "id": "s8.1",
+     "number": "8.1",
+     "title": "做多少",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "要点",
+       "ordered": false,
+       "items": [
+        {
+         "text": "天天用的通常只有几样：进门开灯、离家断电、窗帘、门锁、传感器。[^c8-2]",
+         "id": "s8.1-points-1-1"
+        },
+        {
+         "text": "先把墙里的线留足，设备按需要慢慢添。[^c8-1]",
+         "id": "s8.1-points-1-2"
+        }
+       ],
+       "kind": "points",
+       "id": "s8.1-points-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "智能家居投诉最多的，是宣传的功能和实际用起来差得远。[^c8-3]",
+         "id": "s8.1-pitfalls-1-1"
+        },
+        {
+         "text": "场景配得越复杂，越需要有人长期维护；家里没人会调，系统很容易瘫掉。[^c8-4]",
+         "id": "s8.1-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s8.1-pitfalls-1"
+      }
+     ]
+    },
+    {
+     "id": "s8.2",
+     "number": "8.2",
+     "title": "谁来做",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "text": "常见三种做法：装修公司打包、品牌服务商单独做、自己买设备自己装。选哪种都要先分清**布线谁做、设备谁供、调试谁做、出问题找谁**。",
+       "kind": "text",
+       "id": "s8.2-text-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "售后通常是“谁卖给你找谁”，品牌总部往往不管代理商。[^c8-5]",
+         "id": "s8.2-pitfalls-1-1"
+        },
+        {
+         "text": "智能设备商和装修电工分属两家时，接错线容易互相推诿。[^c8-5]",
+         "id": "s8.2-pitfalls-1-2"
+        },
+        {
+         "text": "跨品牌设备的联动，服务商可能不做深度打通。[^c8-6]",
+         "id": "s8.2-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s8.2-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "布线、设备、安装调试、售后，分别由谁负责？",
+         "id": "s8.2-questions-1-1"
+        },
+        {
+         "text": "签约主体有没有品牌授权？",
+         "id": "s8.2-questions-1-2"
+        },
+        {
+         "text": "布线图由谁出，电工是否签字确认？",
+         "id": "s8.2-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s8.2-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s8.3",
+     "number": "8.3",
+     "title": "水电阶段要预留什么",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "paragraph",
+       "label": "要点",
+       "text": "这一步要在**水电交底前**告诉设计师和电工，封墙后再补就要开槽。[^c8-7]",
+       "kind": "points",
+       "id": "s8.3-points-1"
+      },
+      {
+       "type": "table",
+       "header": [
+        "位置",
+        "预留"
+       ],
+       "items": [
+        {
+         "cells": [
+          "所有开关底盒",
+          "零线；用加深底盒 [^c8-8]"
+         ],
+         "id": "s8.3-text-1-1"
+        },
+        {
+         "cells": [
+          "每个房间",
+          "网线，规格写到超六类 [^c8-9][^c8-10]"
+         ],
+         "id": "s8.3-text-1-2"
+        },
+        {
+         "cells": [
+          "弱电箱",
+          "电源插座 [^c8-11]"
+         ],
+         "id": "s8.3-text-1-3"
+        },
+        {
+         "cells": [
+          "网关",
+          "房子中部，常电插座，不放进金属弱电箱 [^c8-7]"
+         ],
+         "id": "s8.3-text-1-4"
+        },
+        {
+         "cells": [
+          "窗帘盒",
+          "顶部电源"
+         ],
+         "id": "s8.3-text-1-5"
+        },
+        {
+         "cells": [
+          "入户门",
+          "门锁旁插座；门外摄像头留网线和电源位置 [^c8-12]"
+         ],
+         "id": "s8.3-text-1-6"
+        },
+        {
+         "cells": [
+          "扫地机器人、智能马桶、投影、电动晾衣架",
+          "常电插座"
+         ],
+         "id": "s8.3-text-1-7"
+        },
+        {
+         "cells": [
+          "人体传感器、中央空调检修口",
+          "供电"
+         ],
+         "id": "s8.3-text-1-8"
+        }
+       ],
+       "kind": "text",
+       "id": "s8.3-text-1"
+      },
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "没留零线只能用单火开关，带小功率 LED 灯可能频闪、关灯微亮。[^c8-8]",
+         "id": "s8.3-pitfalls-1-1"
+        },
+        {
+         "text": "签约时就说清楚要做智能，让对方把零线和额外点位算进报价。只得到一句口头的“够用”，开工后可能变成点位超标要加钱。[^c8-13]",
+         "id": "s8.3-pitfalls-1-2"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s8.3-pitfalls-1"
+      }
+     ]
+    },
+    {
+     "id": "s8.4",
+     "number": "8.4",
+     "title": "选生态",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "不同品牌之间仍有兼容问题，可能要装多个 App。[^c8-3]",
+         "id": "s8.4-pitfalls-1-1"
+        },
+        {
+         "text": "厂商可能通过升级改变功能，服务停止后部分功能可能无法使用。[^c8-14]",
+         "id": "s8.4-pitfalls-1-2"
+        },
+        {
+         "text": "断网后能不能本地联动，要提前确认。[^c8-14]",
+         "id": "s8.4-pitfalls-1-3"
+        },
+        {
+         "text": "互联互通方面，国家已有推荐性标准，强制性标准还在制定中。写着“支持某协议”，也不代表所有功能都能互通。[^c8-15]",
+         "id": "s8.4-pitfalls-1-4"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s8.4-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "断网后哪些功能还能用？",
+         "id": "s8.4-questions-1-1"
+        },
+        {
+         "text": "服务停止后，设备还能怎么用？",
+         "id": "s8.4-questions-1-2"
+        },
+        {
+         "text": "现有家电（空调、冰箱、洗衣机）能接进来吗？能做到哪一步？",
+         "id": "s8.4-questions-1-3"
+        },
+        {
+         "text": "换路由器后要不要重新配置？谁来配？[^c8-16]",
+         "id": "s8.4-questions-1-4"
+        }
+       ],
+       "kind": "questions",
+       "id": "s8.4-questions-1"
+      }
+     ]
+    },
+    {
+     "id": "s8.5",
+     "number": "8.5",
+     "title": "报价、合同和验收",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "同样的户型和需求，两份智能报价可能差一倍；要拆开看设备、辅材施工、调试售后三部分。[^c8-17]",
+         "id": "s8.5-pitfalls-1-1"
+        },
+        {
+         "text": "报价写着某品牌生态，实际可能是贴牌的第三方设备。[^c8-17]",
+         "id": "s8.5-pitfalls-1-2"
+        },
+        {
+         "text": "安装费、辅材打包成一口价，就看不出哪里贵。[^c8-17]",
+         "id": "s8.5-pitfalls-1-3"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s8.5-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "设备清单是否写到型号、数量和单价？",
+         "id": "s8.5-questions-1-1"
+        },
+        {
+         "text": "套餐价含不含安装、调试？超出部分怎么计价？",
+         "id": "s8.5-questions-1-2"
+        },
+        {
+         "text": "布线和点位是在装修报价里，还是在智能报价里？[^c8-18]",
+         "id": "s8.5-questions-1-3"
+        },
+        {
+         "text": "交付哪些场景？验收时能否逐条演示？",
+         "id": "s8.5-questions-1-4"
+        },
+        {
+         "text": "售后响应时限和保修期是多久？",
+         "id": "s8.5-questions-1-5"
+        }
+       ],
+       "kind": "questions",
+       "id": "s8.5-questions-1"
+      },
+      {
+       "type": "paragraph",
+       "label": "要材料",
+       "text": "带型号和单价的设备清单，点位图，场景清单，验收记录。",
+       "kind": "documents",
+       "id": "s8.5-documents-1"
+      }
+     ]
+    },
+    {
+     "id": "s8.6",
+     "number": "8.6",
+     "title": "隐私",
+     "tags": [],
+     "blocks": [
+      {
+       "type": "list",
+       "label": "避坑",
+       "ordered": false,
+       "items": [
+        {
+         "text": "门锁的指纹、人脸，家用摄像头影像，多属于敏感个人信息。[^c8-19]",
+         "id": "s8.6-pitfalls-1-1"
+        }
+       ],
+       "kind": "pitfalls",
+       "id": "s8.6-pitfalls-1"
+      },
+      {
+       "type": "list",
+       "label": "要问",
+       "ordered": false,
+       "items": [
+        {
+         "text": "摄像头装在哪些位置？卧室装不装？",
+         "id": "s8.6-questions-1-1"
+        },
+        {
+         "text": "数据存在哪里？能不能只存本地？",
+         "id": "s8.6-questions-1-2"
+        },
+        {
+         "text": "账号能否注销，授权能否撤回？",
+         "id": "s8.6-questions-1-3"
+        }
+       ],
+       "kind": "questions",
+       "id": "s8.6-questions-1"
+      }
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "code": "法治日报-家装乱象",
+     "text": "《家装乱象调查：低价引流、恶意增项、拖延工期，合同“埋深坑”》，法治日报，2025-11-22",
+     "link": "[澎湃新闻转载](https://www.thepaper.cn/newsDetail_forward_32020018)"
+    }
+   ]
+  }
+ ],
+ "notes": {
+  "c01-1": {
+   "label": "1",
+   "text": "京津冀合同示范文本（2023）第 1.7 条列出三种承包方式：仅包工、包工包全部材料、包工包部分材料。黑龙江合同示范文本（2025）第 1.5 条另有“按套内面积单价包干”，并要求勾选造价是否含水电隐蔽工程。两份文本都没有“整装”一项。"
+  },
+  "c01-2": {
+   "label": "2",
+   "text": "静海法院（今晚报 2026-10-12）：合同总价 13 万元“全包”，报价单写水电改造费 5000 元，公司开工后称这只是预收款，要再补 3.2 万元。法院认为合同和报价单由公司提供，公司负有解释说明义务；增减项没有签书面变更单，公司在微信里也多次说“13 万是全包”，据此认定 13 万为包干价，增项费用不予支持。法官提示：合同中要明确价款是否为包干价。法治日报-家装乱象（2025-11）：天津一位业主的合同上手写了“全包无增项”，付款后才拿到的详细清单里，“水电预收 9900 元”旁有一行小字“超出部分按实际结算”。山东省消协 2025 年的调查中，51.52% 的受访者遇到过商家用“全包”等模糊措辞夸大宣传。"
+  },
+  "c01-3": {
+   "label": "3",
+   "text": "编辑整理。知识库中有一位作者的建议：有时间但不懂装修可选半包 {{claim:claim_8582f6975f104fb6}}；既不懂又没时间可选全包，但定制、家具、家电自己买 {{claim:claim_8aa7b6ccb9424503}}；有时间且懂装修才考虑自己装 {{claim:claim_fefab004cfaa4452}}。三条来自同一作者。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_8582f6975f104fb6",
+     "fingerprint": "046ca5b626ed8bf4"
+    },
+    {
+     "claim_id": "claim_8aa7b6ccb9424503",
+     "fingerprint": "a5dc6e4aa729b59e"
+    },
+    {
+     "claim_id": "claim_fefab004cfaa4452",
+     "fingerprint": "822f9f8fb5380d0c"
+    }
+   ],
+   "claim_only": false
+  },
+  "c01-4": {
+   "label": "4",
+   "text": "法治日报-家装乱象（2025-11）引律师陈思：多数业主未签规范的书面合同，仅通过口头、微信约定工期和售后，一旦发生纠纷举证难度很大；引沈阳师范大学副教授吴迪：大量无资质包工头及小施工队承接业务，施工与管理不规范。"
+  },
+  "c01-5": {
+   "label": "5",
+   "text": "黑龙江示范文本附件 2-2 表头：“乙方购置主材，由乙方负责安装并负责质保；甲方购置主材，可委托乙方安装，乙方不负责产品质保。”"
+  },
+  "c01-6": {
+   "label": "6",
+   "text": "黑龙江示范文本（2025）第 1.5 条：承包方式分“乙方包工、甲方包料”“乙方包工、部分包料”“乙方包工、包料”等，注明“工程施工所用工艺及材料明细双方应在施工前约定”，并要勾选工程造价是否包含水电项目。知识库作者观点：所有安装辅材不能口头说“标配”，要单独列清楚附在合同里 {{claim:claim_a32edf5ef3774322}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_a32edf5ef3774322",
+     "fingerprint": "d36556d15c441ddf"
+    }
+   ],
+   "claim_only": false
+  },
+  "c01-7": {
+   "label": "7",
+   "text": "黑龙江示范文本附件 2-1 的参考报价单里，水电只有一行“水电改造费用（项）”，放在“水电项目预收”下面，没有列管材和线材。暗盒、强电箱是否另算，见第 4 章 4.4 节的易漏项；“水电预收”后来要补钱的案例见[第 0 章注释 2](note:c01-2)。"
+  },
+  "c01-8": {
+   "label": "8",
+   "text": "黑龙江示范文本附件 2-2《主材、定制施工项目报价单》列出的主材：橱柜、瓷砖及辅材、地板及辅料和踢脚线、门及门套、卫生洁具、五金电器、集成吊顶、理石台面、电器和灯具、开关插座、壁纸和墙板、定制家具、散热器、窗帘杆及滑道。[搜狐号文章](https://www.sohu.com/a/776890673_121123745)（2024-05，自媒体）也把开关面板、地漏、铝扣板、门槛石和窗台石归为主材。"
+  },
+  "c01-9": {
+   "label": "9",
+   "text": "黑龙江示范文本附件 3：墙面、地面瓷砖铺贴的材料说明只写“水泥砂浆”，并注明“勾缝剂甲供”“瓷砖甲供”。也就是说，这份参考报价不含瓷砖胶和勾缝剂。"
+  },
+  "c01-10": {
+   "label": "10",
+   "text": "黑龙江示范文本附件 2-1 把“卫生间下水管减音”单列为一项。知识库作者观点：下水管要包隔音棉，可以自己买材料，也可以由施工方包 {{claim:claim_67cc040fee234aa3}}；隔音棉最好业主自己买好一点的，施工方负责包上 {{claim:claim_01688f46a4d64514}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_67cc040fee234aa3",
+     "fingerprint": "6b86396fa09dfd7f"
+    },
+    {
+     "claim_id": "claim_01688f46a4d64514",
+     "fingerprint": "41d06cad91be17c6"
+    }
+   ],
+   "claim_only": false
+  },
+  "c01-11": {
+   "label": "11",
+   "text": "黑龙江示范文本附件 2-1、附件 3：“涂刷乳胶漆”按滚涂两遍报价，“乳胶漆增加颜色”（两色以外）单列计价。知识库作者观点：乳胶漆可以从报价单里删掉，由业主自己网购 {{claim:claim_29b4ade819324d75}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_29b4ade819324d75",
+     "fingerprint": "cbf7c0a5db2e96b9"
+    }
+   ],
+   "claim_only": false
+  },
+  "c01-12": {
+   "label": "12",
+   "text": "[搜狐号文章](https://www.sohu.com/a/776890673_121123745)（2024-05，自媒体）把角阀、玻璃胶列为辅材；黑龙江示范文本附件 2-2 只写“卫生洁具”，没有细到角阀和软管。"
+  },
+  "c01-13": {
+   "label": "13",
+   "text": "辅材一列综合了黑龙江示范文本附件 3 各项的“材料说明”（水泥砂浆、红砖、铁丝网、基层板、石膏板、腻子粉、界面剂、嵌缝带、防水），以及[搜狐号文章](https://www.sohu.com/a/776890673_121123745)（2024-05，自媒体）列的辅料：PPR 水管及配件、电线、PVC 电线管、防水涂料、纸面石膏板、轻钢龙骨、腻子。各家分法不同，以合同附件为准。"
+  },
+  "c01-14": {
+   "label": "14",
+   "text": "京津冀示范文本第 4.10 条：甲方供应的材料、设备，在施工使用中的保管、施工质量等责任由乙方承担。黑龙江示范文本附件 2-2：甲方购置的主材，乙方不负责产品质保。前者说的是施工质量，后者说的是产品质量。"
+  },
+  "c01-15": {
+   "label": "15",
+   "text": "黑龙江示范文本第 7.1 条：乙方发现甲方提供的材料不符合要求，应及时提出；如甲方书面同意继续使用，由此造成的工程损失和质量问题由甲方承担。"
+  },
+  "c01-16": {
+   "label": "16",
+   "text": "京津冀示范文本第 9.7 条：因甲方原因未及时提供材料、设备，造成的损失由甲方承担；乙方未及时提供材料供需时间表的，损失由乙方承担。黑龙江示范文本第 8.2 条：甲方未完成其负责的工作内容而影响工期的，工期自动顺延。"
+  },
+  "c01-17": {
+   "label": "17",
+   "text": "知识库作者观点：瓷砖到场后尽量拆箱检查磕角，前期发现是商家问题，铺贴时才发现容易扯皮 {{claim:claim_7bd394080496480f}}；提前和商家说好退货方式和运费 {{claim:claim_44520fd25baf4008}}。两条来自同一作者。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_7bd394080496480f",
+     "fingerprint": "854c2d32978b1f0f"
+    },
+    {
+     "claim_id": "claim_44520fd25baf4008",
+     "fingerprint": "8e978a51f792f2c8"
+    }
+   ],
+   "claim_only": true
+  },
+  "c01-18": {
+   "label": "18",
+   "text": "华商网 2026-10-28 报道：一家公司报价“13 万元硬装全包”，报价单的“水电”类目下只有厨卫小家电安装、局部线路连接，全屋水电改造需另付约 2 万元。律师提示：类目名称容易造成理解偏差。"
+  },
+  "c01-19": {
+   "label": "19",
+   "text": "《法治日报》2024-06-04 调查：一位业主以为 16 万余元的报价包含全屋定制，实际只含橱柜，增项 9.9 万元；另一位业主的合同写了 56 个水电点位，实际做了 125 个，超出部分另收费。知识库作者观点（同一作者同一视频）：“吊顶全包”不含复杂造型和灯带线槽 {{claim:claim_eca7cdd828f04546}}，“铺砖全管”不含海棠角和通铺 {{claim:claim_b44e3946e9d84803}}，厨房多走回路的费用到施工时才提出 {{claim:claim_1537ec134e6b4597}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_eca7cdd828f04546",
+     "fingerprint": "32beb4741eaacedc"
+    },
+    {
+     "claim_id": "claim_b44e3946e9d84803",
+     "fingerprint": "c0d402aacab40f9c"
+    },
+    {
+     "claim_id": "claim_1537ec134e6b4597",
+     "fingerprint": "a8b77426e0103ec6"
+    }
+   ],
+   "claim_only": false
+  },
+  "c01-20": {
+   "label": "20",
+   "text": "人民日报（新华网 2025-08-29）引西南大学副教授刘培森：合同中标注“某品牌或同等档次产品”，后期公司可能以缺货为由推荐高价替代品。"
+  },
+  "c01-21": {
+   "label": "21",
+   "text": "京津冀示范文本第 1.5 条：没有变更时按实际发生量结算，“增幅不超过工程预算款的 5%”。黑龙江示范文本第 11.2 条：没有变更时，结算价应与预算价相符，超出部分由乙方承担。"
+  },
+  "c01-22": {
+   "label": "22",
+   "text": "新民网 2026-10：上海一位业主为 38㎡ 老房签了“一价全包”7 万元，水电验收付款当天，公司称合同价不含拆旧，要加 1 万元，不付就停工。之后又列出数十项增项，两次合计超过合同总价，最终解约。"
+  },
+  "c01-23": {
+   "label": "23",
+   "text": "京津冀示范文本第 4.2 条、黑龙江示范文本第 5.9 条：乙方每日将垃圾放到物业指定地点。黑龙江示范文本第 16.3 条：拆除、垃圾外运费用由双方协商约定由哪方承担。知识库作者观点：铲墙皮垃圾清运和原墙铲除应列入报价 {{claim:claim_b04f28eb77ba40b2}} {{claim:claim_beb1ba358ba64765}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_b04f28eb77ba40b2",
+     "fingerprint": "2cf97a92f3802759"
+    },
+    {
+     "claim_id": "claim_beb1ba358ba64765",
+     "fingerprint": "cfd4cf97ee586677"
+    }
+   ],
+   "claim_only": false
+  },
+  "c01-24": {
+   "label": "24",
+   "text": "黑龙江示范文本附件 2-1 的参考报价单，把垃圾清运费、材料搬运费、水平运输费、施工设计费、工程管理费单独列为“其他项目费用”。"
+  },
+  "c01-25": {
+   "label": "25",
+   "text": "黑龙江示范文本第 3.1 条注释：“非单独收取的设计费，可列入装修工程款报价单或管理费中。”知识库作者观点：量尺、平面图、预算通常免费，施工图和效果图收费 {{claim:claim_e713ac9732e24cf9}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_e713ac9732e24cf9",
+     "fingerprint": "6724ea14b329ae01"
+    }
+   ],
+   "claim_only": false
+  },
+  "c01-26": {
+   "label": "26",
+   "text": "华商网 2026-10-28：业主签合同前交了 5000 元意向金和 8000 元设计费，终止合作时设计费退款起争议，协商后退回 5000 元。法治日报-家装乱象（2025-11）：广州一位业主到店当天交了 3 万元定金，对方保证“7 天内不满意可全退”；约好 3 天出的效果图一再拖延，过了 7 天退款期限才送到。"
+  },
+  "c01-27": {
+   "label": "27",
+   "text": "《住宅室内装饰装修管理办法》第 5 条禁止：无设计方案变动承重结构；把没有防水要求的房间或阳台改为卫生间、厨房；扩大承重墙上原有门窗尺寸，拆除连接阳台的墙体；损坏原有节能设施。第 6 条：搭建建筑物，改外立面，拆改供暖、燃气管道，须经批准。第 8 条：改动厨卫防水层须做闭水试验。"
+  },
+  "c01-28": {
+   "label": "28",
+   "text": "上海静安法院（2025-08）：装修公司提供的设计图纸含拆改卫生间承重墙，业主签了同意拆改的协议；拆改后被行政部门责令恢复并罚款。法院认为业主未尽注意义务，公司作为专业方在图纸中设计拆改承重墙、未予制止并继续施工，双方均有责任，判公司按过错比例赔偿部分损失。"
+  },
+  "c01-29": {
+   "label": "29",
+   "text": "《法治日报》2024-06-03：南京一位业主装修时发现前业主曾私拆承重墙，被要求恢复原状，加固费用上万元。"
+  },
+  "c01-30": {
+   "label": "30",
+   "text": "海淀法院（2024-10）：装修公司为刷墙拆下暖气片，约定 2 日内装回却一直没装，排水阀也没堵好，供暖试水时房间被淹，木门、地板泡毁，楼下顶棚也被浸泡；法院判公司赔偿约 7.1 万元。《住宅室内装饰装修管理办法》第三十三条：装修造成相邻住宅渗漏等，装修人负责修复和赔偿，属于装饰装修企业责任的，装修人可以向企业追偿。"
+  },
+  "c23-1": {
+   "label": "1",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）描述了大型整装公司的接待流程：客服约到店、参观展厅和样板间、介绍优惠，方案和报价还没出来就要求交定金，“你以为你在筛选装修公司，其实是装修公司在筛选你”。"
+  },
+  "c23-2": {
+   "label": "2",
+   "text": "黑龙江示范文本使用说明第 4 条：签订合同前，甲方应查验乙方的营业执照和资质，合同签订后应加盖与营业执照一致的公章或合同专用章。"
+  },
+  "c23-3": {
+   "label": "3",
+   "text": "南充极目新闻（2024-02-06）：一家装修公司的标识与某知名家装品牌“十分相似”，品牌总部声明双方没有任何关系、对方冒用标识；这家公司 2022 年才成立，收了上百户业主的款项后停业。上海一位装修从业者（V2EX 转贴，2026-05）：宣传叫某某装饰，签约主体可能叫某某网络科技有限公司，不同区域的分公司注册名也不同。银川-注销（2026-10）：业主在某品牌家居门店签约，签约方是门店的分销合作商，合作商撤店后品牌方不负责其施工和售后。"
+  },
+  "c23-4": {
+   "label": "4",
+   "text": "中消协 2025 年八大投诉热点：部分装修企业通过品牌或关联公司名义开展业务，实际签约和收款主体不一致，实际施工人员与合同主体不一致。"
+  },
+  "c23-5": {
+   "label": "5",
+   "text": "中消协 2025 年八大投诉热点：建议通过国家企业信用信息公示系统、中国执行信息公开网查询。南充极目新闻（2024-02-06）：涉事公司成立于 2022 年，2024 年 1 月因公示信息弄虚作假被列入经营异常名录。"
+  },
+  "c23-6": {
+   "label": "6",
+   "text": "《住宅室内装饰装修管理办法》第 9 条：变动建筑主体和承重结构，或涉及第 6、7、8 条（拆改供暖燃气管道、增加楼面荷载、改动厨卫防水层）的，必须委托具有相应资质的装饰装修企业。第 14 条：委托企业施工的，物业申报时要提供企业资质证书复印件。第 22、23 条：装饰装修企业须取得相应资质，装修人应选择具有相应资质等级的企业。"
+  },
+  "c23-7": {
+   "label": "7",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：大型展厅多是租来的，样板间是一次性装修，材料展品多为供应商赞助；作者亲历过有名气的整装公司暴雷。这是从业者的个人观点。"
+  },
+  "c23-8": {
+   "label": "8",
+   "text": "黑龙江示范文本“风险提示”：合同抬头的主体与签名盖章的主体不一致时，一般以签名盖章的主体为准；对方使用财务专用章、发票专用章或非正式公章的，应要求重新盖章。"
+  },
+  "c23-9": {
+   "label": "9",
+   "text": "中山市消委会 2026-07：部分装修企业以“低价全包”“免费设计”“限时特惠”为噱头引流，施工中不断增项。中消协 2025 年投诉热点：社交平台以“低价全包”“源头工厂”等话术制造低价预期。"
+  },
+  "c23-10": {
+   "label": "10",
+   "text": "中山市消委会 2026-07：有的商家虚构“顶级设计师”“国际工艺认证”等资质，发布虚假好评误导消费。"
+  },
+  "c23-11": {
+   "label": "11",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：“自有产业工人”多为营销说法，工人工资可能通过第三方劳务公司发放，所谓“没有工长”是把工程拆成单项直接发包到工人。可以要求看劳动合同、社保记录来核实。这是从业者的个人观点。"
+  },
+  "c23-12": {
+   "label": "12",
+   "text": "同上：装修是信息源污染的重灾区，网上检索到的很多内容是广告软文，价格信息尤其混乱。本指南在搜集资料时也排除了大量带公司推荐的“排名”“指南”类文章。"
+  },
+  "c23-13": {
+   "label": "13",
+   "text": "知识库作者观点：样板间的工人和施工队与其他工地一样，价格也没有额外优惠 {{claim:claim_a9ca3b1a17f44469}}；可以到小区里正在装修的住户家看工人干活 {{claim:claim_0837ac218e5b44aa}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_a9ca3b1a17f44469",
+     "fingerprint": "362641c5b58edd87"
+    },
+    {
+     "claim_id": "claim_0837ac218e5b44aa",
+     "fingerprint": "57c46fefd7dcf258"
+    }
+   ],
+   "claim_only": true
+  },
+  "c23-14": {
+   "label": "14",
+   "text": "知识库作者观点：看装修公司平时发布的实际工地内容，越真实越好 {{claim:claim_fdb7e0c3d5544503}}。这只能作为参考，发布内容不等于现场核实。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_fdb7e0c3d5544503",
+     "fingerprint": "1ae19ac6f39415a6"
+    }
+   ],
+   "claim_only": true
+  },
+  "c23-15": {
+   "label": "15",
+   "text": "编辑整理。可结合第 6 章各施工阶段的验收要点和知识库中的工艺卡片判断。"
+  },
+  "c23-16": {
+   "label": "16",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：装修公司把工程交给施工经理，施工经理带工人完成；施工经理的水平直接影响工地质量，也是施工期间和业主打交道最多的人。"
+  },
+  "c23-17": {
+   "label": "17",
+   "text": "京津冀示范文本首页要求填写“施工负责人”及联系方式；黑龙江示范文本第 5.7 条：乙方应指派专人为施工负责人，全权负责合同履行。"
+  },
+  "c23-18": {
+   "label": "18",
+   "text": "《法治日报》2024-06-06 引中央财经大学法学院教授：与装修公司签合同的，无论包工头还是公司跑路，违约责任都由公司承担。"
+  },
+  "c23-19": {
+   "label": "19",
+   "text": "《法治日报》2024-06-04：一位业主签约时专门确认过工长是公司员工，第一阶段完工后工长发来 8.7 万元增项单；设计师说走公司流程会更贵，“如果愿意将增项费用直接给工长，他可以再去协商价格”，业主最后与工长私下以 7.5 万元成交。《法治日报》2024-06-06：长沙一家公司跑路后，法定代表人称钱是被项目经理卷走的，自己只是小股东。"
+  },
+  "c23-20": {
+   "label": "20",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：有的公司先低价签约，再把预计亏本的工地交给施工经理，施工经理要赚钱，“就天天追着客户加钱，加不到钱，那就只能在施工质量和材料上动心思了”。"
+  },
+  "c23-21": {
+   "label": "21",
+   "text": "中消协 2025 年八大投诉热点：实际施工人员与合同主体不一致、施工队频繁更换。法治日报-家装乱象（2025-11）引吴迪：大量无资质包工头及小施工队承接业务，施工与管理不规范。"
+  },
+  "c23-22": {
+   "label": "22",
+   "text": "京津冀示范文本第 3.11 条：甲方根据乙方提供的施工进度表检查进度，安排自购产品的测量、送货、安装时间。第 3.12 条：根据乙方提供的项目验收单，按工程进度到现场逐一验收。"
+  },
+  "c23-23": {
+   "label": "23",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：工期延误的常见原因之一是小公司同时接的工地超出管理能力，“那可不就只能靠拖了”。"
+  },
+  "c23-24": {
+   "label": "24",
+   "text": "同上：一个不常规的约定，要从设计师转给施工经理，再转给工人，中间容易遗漏或传达错误，即使写在预算和图纸上也可能被忽略。"
+  },
+  "c23-25": {
+   "label": "25",
+   "text": "同上：第三方监理可以陪签合同、审核预算、做验收，但收费和水平差别大；有的监理是装修公司的托，会推荐你换一家公司。"
+  },
+  "c23-26": {
+   "label": "26",
+   "text": "同上：大型整装公司自己配的监理、质检员或工程管家，更多是为公司服务，“自己人管自己人，效果聊胜于无”。"
+  },
+  "c23-27": {
+   "label": "27",
+   "text": "京津冀示范文本使用说明第 8 条、黑龙江示范文本第二条：实行工程监理的，甲方应另与监理公司签订合同，并把监理的姓名、单位、联系方式和职责书面告知乙方，监理费由甲方承担。"
+  },
+  "c4-1": {
+   "label": "1",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：“全包”“半包”没有严格界定，报价不含某项照样可以叫全包，“不看项目只看总价，没任何意义”。"
+  },
+  "c4-2": {
+   "label": "2",
+   "text": "同上。作者建议按施工顺序（拆旧、土建、水电、瓦工、木工、油漆、安装、杂费）核对报价，并逐阶段列出了常见的漏报和低报项目，上表据此整理。"
+  },
+  "c4-3": {
+   "label": "3",
+   "text": "法治日报-家装乱象（2025-11）：天津一位业主付了 60% 首付款后才收到详细清单，设计师签约时说“清单没问题，详细版明天送过来”；记者调查发现，有的公司签约时只给框架清单，付款后才提供详细清单，其中暗藏“预收费用超支补款”等条款。"
+  },
+  "c4-4": {
+   "label": "4",
+   "text": "同一帖评论区，另一位业主：美缝报了 500 多米，自己量下来不到一半，最后减了一半；工长说点位不够，业主到现场数了开好的洞，实际比套餐还少十几个。"
+  },
+  "c4-5": {
+   "label": "5",
+   "text": "山东省消协 2025 年家装家居消费调查（14186 份问卷）：60.49% 的受访者遇到过项目拆分过细、重复收费，32.49% 遇到过虚报工程量，33.17% 遇到过把损耗费、税费、运费藏在报价单里。"
+  },
+  "c4-6": {
+   "label": "6",
+   "text": "法治日报-家装乱象（2025-11）：上海一位业主开工一个多月后，项目经理以“吊顶面积计算少了”要求补款 8522 元。人民日报（新华网 2025-08-29）：重庆一位业主遇到“报价时漏算防水面积，后期按实际面积补收高价费用”，公司以合同写了“按实际发生计算”为由。"
+  },
+  "c4-7": {
+   "label": "7",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：同城、同标准的报价，差三五千可以理解，差一万以上就要警惕；“装修没有上限，但是有下限，低于这个下限，一切承诺都不成立。”这是从业者的个人观点。"
+  },
+  "c4-8": {
+   "label": "8",
+   "text": "湖南日报 2025-07 报道引装修业内人士：“同一品牌、同类产品分不同等级，价格和品质也有差别”；报道中一位业主的全包套餐“材料虽为品牌，却很低端，选购高端品牌要加钱”。"
+  },
+  "c4-9": {
+   "label": "9",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）称之为“假施工合同”：先按套餐标配材料签施工合同，签完去选主材，看中的都要加钱升级。建议主材在签约前选到型号，顺序是“定方案，对项目，选材料，签合同”。"
+  },
+  "c4-10": {
+   "label": "10",
+   "text": "人民日报（新华网 2025-08-29）引西南大学副教授刘培森：合同中标注“某品牌或同等档次产品”，后期公司可能以缺货为由推荐高价替代品。"
+  },
+  "c4-11": {
+   "label": "11",
+   "text": "京津冀示范文本第 7.2 条：材料到场时，双方就品牌、型号、规格、数量、质量、环保等共同验收。第 9.11 条：乙方实际使用的材料品牌、型号、规格、数量与合同不符的，甲方有权要求赔偿。"
+  },
+  "c4-12": {
+   "label": "12",
+   "text": "京津冀示范文本第 1.5 条：“工程预算单应当与材料质量工艺标准配套编制”；附件一《工程预算单》每项都有“工艺做法、用料说明”一栏。"
+  },
+  "c4-13": {
+   "label": "13",
+   "text": "黑龙江示范文本附件 3《工程内容和做法一览表》中的写法，例如：瓷砖铺贴“水泥砂浆厚度 2cm 以内，如超过此厚度需另报墙面找平项目”“斜铺拼花费用另计”“拉缝粘贴每米加收”；墙面基层处理“棚面空鼓龟裂费用另计”。"
+  },
+  "c4-14": {
+   "label": "14",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：瓦工报价一般按 800×800 等规格起步，大砖、小规格砖、墙砖薄贴都可能加人工和材料费。"
+  },
+  "c4-15": {
+   "label": "15",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：防水涂刷高度、地面找平厚度、墙面找平标准（顺平、垂平、冲筋）都会影响价格，要在报价阶段确认。"
+  },
+  "c4-16": {
+   "label": "16",
+   "text": "新民网 2026-10：38㎡ 老房“一价全包”7 万元，开工后先以“不含拆旧”加 1 万，后又列出数十项增项要加 6.3 万余元，两次合计超过合同总价，业主拒付后公司停工，最终解约。法治日报-家装乱象（2025-11）：上海一位业主的合同写明不改设计时总价增减不超过预算的 5%，施工中仍以吊顶面积算少、墙面基层未算、吊柜要加宽为由三次增项共 2.8 万余元，远超 5% 的上限（9040 元）；业主不同意就停工，最后付了 2.18 万元。"
+  },
+  "c4-17": {
+   "label": "17",
+   "text": "京津冀示范文本第 1.5 条：没有变更时按实际发生量结算，增幅不超过预算的 5%；第 9.6 条：未经甲方书面同意，乙方随意增项，费用由乙方承担。"
+  },
+  "c4-18": {
+   "label": "18",
+   "text": "法治日报-家装乱象（2025-11）：广州一位业主已付到总价的 90%，收尾时设计师在群里通知“五金件、屋内灯带均不在全包范围内”，要补交 3.2 万元，否则停工。"
+  },
+  "c5-1": {
+   "label": "1",
+   "text": "中山市消委会 2026-07 提示：“所有承诺必须落实为书面条款”，不签空白合同和简易协议。人民日报（新华网 2025-08-29）引河北省消保委律师团副团长赵哲锋：不轻信任何口头承诺，所有口头承诺都应写入书面合同或协议。"
+  },
+  "c5-2": {
+   "label": "2",
+   "text": "中山市消委会 2026-07：“定金”具有担保性质，消费者单方违约一般不予退还；“订金”属于预付款，可以依法协商退还。"
+  },
+  "c5-3": {
+   "label": "3",
+   "text": "中山市消委会 2026-07：在未确定设计方案、详细预算和完整施工内容前，切勿盲目交纳大额费用，交费前明确退款条件、方式和期限，并索要正规票据。华商网 2026-10：业主签约前交了意向金和设计费，终止合作时退款起争议。"
+  },
+  "c5-4": {
+   "label": "4",
+   "text": "法治日报-家装乱象（2025-11）：广州一位业主到店当天交了 3 万元定金，对方保证“7 天内不满意可全退”，效果图拖过 7 天才送到；设计师又提议“合同按 11.5 万元签，剩下的 1.5 万元由我负责采购”，业主没签补充协议就默认了。付到总价的 90% 后，公司要求补交 3.2 万元，否则停工。"
+  },
+  "c5-5": {
+   "label": "5",
+   "text": "黑龙江示范文本第 11.1 条：签约当日付款“建议不超过 30%”，竣工验收付款“建议不少于 5%”；第 11.3 条：竣工后可保留 2%–3% 质量保修金，不少于 6 个月。京津冀示范文本第 8.4 条：竣工后可留取不超过结算款 3% 的质量保证金。这些是两地文本的建议值，不是全国规定。"
+  },
+  "c5-6": {
+   "label": "6",
+   "text": "湖南日报 2025-07：一位业主进场时一次性付了 15 万总价中的 9 万；另一位业主对“签约后交全款的 60% 作为首付”有异议。山东省消协调查：58.76% 的受访者遇到过定金金额不合理，46.54% 遇到过被引诱在装修初期交大额定金或全款。"
+  },
+  "c5-7": {
+   "label": "7",
+   "text": "《法治日报》2024-06-06：西昌一位业主的合同约定签约付 30%、开工付 30%，开工不到半个月公司跑路，已付 5.9 万元。"
+  },
+  "c5-8": {
+   "label": "8",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：付款节点和比例一般和公司内部流程绑定，很难修改；家装“没有留尾款或者质保金一说”，首付比例超过 50% 的要慎重。示范文本的写法见[注释 5](note:c5-5)。"
+  },
+  "c5-9": {
+   "label": "9",
+   "text": "《法治日报》2024-06-06：长沙一位业主付了 11.5 万元，只做完水电、吊顶等不到一半工程，公司人去楼空；成都一位业主付了两笔共 8.7 万元，施工队还没进场公司就跑了，同一家公司涉及 100 多位业主。"
+  },
+  "c5-10": {
+   "label": "10",
+   "text": "《法治日报》2025-11-22 引中国法学会消费者权益保护法学研究会副秘书长：北京某家装公司以“预交资金比例越高，享受的折扣力度越大”吸引消费者预交款项，之后关门跑路。"
+  },
+  "c5-11": {
+   "label": "11",
+   "text": "《法治日报》2024-06-06 引中央财经大学法学院教授：装修公司出现跑路迹象时，消费者可以行使先履行抗辩权或不安抗辩权，暂停支付剩余款项。"
+  },
+  "c5-12": {
+   "label": "12",
+   "text": "《法治日报》2025-11-22：资金存管由消费者、装修企业、银行三方签署《交易资金存管协议》，开立专用账户，银行根据消费者确认的施工进度分批划款。中消协在 2025 年投诉热点中建议探索在全行业推行装修资金第三方存管。"
+  },
+  "c5-13": {
+   "label": "13",
+   "text": "中消协 2025 年八大投诉热点：建议通过国家企业信用信息公示系统、中国执行信息公开网查询企业是否有经营异常或被列为失信被执行人。"
+  },
+  "c5-14": {
+   "label": "14",
+   "text": "京津冀示范文本第 5.1 条：工程内容变更须双方协商一致，共同签订工程变更单（附件七），同时调整费用和工期；变更单作为竣工结算和工期顺延的依据。"
+  },
+  "c5-15": {
+   "label": "15",
+   "text": "静海法院（今晚报 2026-10-12）：报价单写水电改造费 5000 元，公司要补 3.2 万元，但增减项没有签书面变更单，法院对增项费用不予支持。法官提示：对“先施工、后补签”、只在微信里承诺却没写进合同的做法要谨慎，留存聊天记录、报价单和付款凭证。"
+  },
+  "c5-16": {
+   "label": "16",
+   "text": "知乎专栏文章（2026-06，文末含合同检查工具推广，只引用其分析）：只写“工程量按实际发生结算，增减项目双方协商确定”，没有事前告知、确认流程、计价规则和私自施工的追责。京津冀示范文本第 1.5 条把没有变更时的结算增幅限制在 5% 以内。"
+  },
+  "c5-17": {
+   "label": "17",
+   "text": "新民网 2026-10：业主被迫支付拆旧增项 1 万元后，要求装修公司在收据上写明“不增加项目、不增加费用”。"
+  },
+  "c5-18": {
+   "label": "18",
+   "text": "黑龙江示范文本第 6.5 条：变更价格优先按预算表已有单价；没有的，参照类似项目协商；都没有的，参照同期市场价格。"
+  },
+  "c5-19": {
+   "label": "19",
+   "text": "京津冀示范文本第 3.10、4.9、7.2、9.7 条；黑龙江示范文本第 7.1、8.2 条。详见[第 1 章注释 14–16](note:c01-14)。"
+  },
+  "c5-20": {
+   "label": "20",
+   "text": "黑龙江示范文本第 1.6 条：工期按自然日计，周末和法定节假日未施工的不计入；甲方自行购置设施设备的安装时间不计入工期；竣工日期以验收合格日为准。第 8.1–8.4 条列出了经甲方确认才能顺延、自动顺延、不得顺延的情形。"
+  },
+  "c5-21": {
+   "label": "21",
+   "text": "黑龙江示范文本第 8.2 条：因甲方未完成约定工作、甲方材料质量问题需返工、甲方未按约定付款等原因造成的延误，工期自动顺延。海淀法院（2024-10）一案中，公司辩称延期是业主增项、多次变更设计造成，但没有就新工期与业主达成一致；法院认定公司违约在先。"
+  },
+  "c5-22": {
+   "label": "22",
+   "text": "湖南日报 2025-07：一位业主的合同中，施工方逾期每天赔 50 元，而业主逾期付款按日息 0.5% 计违约金。黑龙江示范文本第 12.2、12.4 条对双方的逾期违约金采用相同的建议区间。"
+  },
+  "c5-23": {
+   "label": "23",
+   "text": "海淀法院（2024-10）：合同工期一个月，公司逾期后承诺某日完工仍未完成，法院判公司支付从承诺完工日次日到业主实际入住前的逾期违约金 8.5 万元；业主主张的其他损失因证据不足未获支持。"
+  },
+  "c5-24": {
+   "label": "24",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：工期违约金一般每天几十到一两百元，“别指望提高”，建议正常全屋装修预留三个月工期。黑龙江示范文本第 12.2 条的建议区间为每日 1‰–5‰，累计不超过 30%。"
+  },
+  "c5-25": {
+   "label": "25",
+   "text": "《法治日报》2024-06-06 引中央财经大学法学院教授：与装修公司签合同的，无论包工头还是公司跑路，违约责任都由公司承担，但公司以其资产为限；与包工头个人签合同的，由包工头个人承担。"
+  },
+  "c5-26": {
+   "label": "26",
+   "text": "黑龙江示范文本第 12.9 条：签约后施工前无正当理由解除的，违约金建议不超过合同总价款的 5%；第 12.10 条：施工过程中无正当理由解除的，建议 5%–10%。"
+  },
+  "c5-27": {
+   "label": "27",
+   "text": "黑龙江示范文本第 12.7 条：乙方不得转包，未经甲方书面允许不得分包，违反的甲方有权终止合同并要求违约金。京津冀示范文本第 4.8 条：乙方不得转包、分包合同约定的工程内容。中消协 2025 年投诉热点：签约和收款主体不一致、实际施工人员与合同主体不一致、施工队频繁更换。"
+  },
+  "c5-28": {
+   "label": "28",
+   "text": "南充极目新闻（2024-02-06）：涉事公司的标识与某知名家装品牌十分相似，品牌方声明双方无任何关系。上海一位装修从业者（V2EX 转贴，2026-05）：宣传时叫某某装饰，签约公司可能叫某某网络科技有限公司。"
+  },
+  "c5-29": {
+   "label": "29",
+   "text": "中山市消委会 2026-07：有条款约定“竣工验收后，装修公司视为履行完合同全部义务，消费者不得再以任何理由主张权利”，实际免除了装修公司的保修责任。"
+  },
+  "c5-30": {
+   "label": "30",
+   "text": "《住宅室内装饰装修管理办法》第 24 条列出了装修合同应包含的主要内容。京津冀示范文本附件一至十一、黑龙江示范文本附件 1–9 包含这些文件的模板。"
+  },
+  "c5-31": {
+   "label": "31",
+   "text": "上海一位装修从业者（V2EX 转贴，2026-05）：正规的装修贷款直接打到装修公司账户，等于开工就一次性付清；有公司引导客户多贷，多贷部分随装修款一起先到公司账户，几个月后才退。"
+  },
+  "c5-32": {
+   "label": "32",
+   "text": "《法治日报》2024-06-06：业主反映，不少人买房已掏空积蓄，装修贷了款，要不回来损失很大。"
+  },
+  "c6-1": {
+   "label": "1",
+   "text": "黑龙江示范文本第 10.2 条：经甲方验收合格签字确认后，乙方方可进入下一阶段施工。第 11.1 条的付款表把第二、三、四笔款分别放在水电、木瓦、竣工验收通过之后。"
+  },
+  "c6-2": {
+   "label": "2",
+   "text": "京津冀示范文本第 7.2 条：任何一方的材料到场前通知对方，双方现场就品牌、型号、规格、数量、质量、环保等共同验收，办理交接或书面确认。黑龙江示范文本第 7.1、7.2 条写法相同。"
+  },
+  "c6-3": {
+   "label": "3",
+   "text": "黑龙江示范文本第 7.1 条：乙方发现甲方材料不符合要求应及时提出，“如甲方书面同意继续使用，因此造成的工程损失及工程质量问题由甲方承担”。"
+  },
+  "c6-4": {
+   "label": "4",
+   "text": "黑龙江示范文本第 7.2 条：乙方材料不符合约定或规格有差异的，甲方有权禁止使用并要求更换，损失和质量责任由乙方承担。第 12.3 条：乙方在甲方不知情时提供假冒伪劣材料的，按材料价款 3 倍赔偿（不足 500 元按 500 元计）。知识库作者观点：要现场核对实际材料品牌是否与合同一致 {{claim:claim_b67b48101cdc45e0}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_b67b48101cdc45e0",
+     "fingerprint": "5cd182bfd7955aee"
+    }
+   ],
+   "claim_only": false
+  },
+  "c6-5": {
+   "label": "5",
+   "text": "人民日报（新华网 2025-08-29）引西南大学副教授刘培森：合同中标注某品牌或同等档次产品，后期公司可能以缺货为由推荐高价替代品。河北省消保委律师团副团长赵哲锋：材料进场时对照合同核验品牌型号。"
+  },
+  "c6-6": {
+   "label": "6",
+   "text": "黑龙江示范文本第 7.5 条：乙方供应的材料应符合室内装饰装修材料有害物质限量的强制性国家标准，并有检测机构出具的合格报告。"
+  },
+  "c6-7": {
+   "label": "7",
+   "text": "黑龙江示范文本第 10.1 条：分为材料设备进场验收，以及前期隐蔽工程（给排水、电气管线、供暖管线）、中期木瓦工程（防水、地面基层与铺砖、吊顶、现场制作家具）、油漆工程、竣工整体验收（含室内空气检测）。"
+  },
+  "c6-8": {
+   "label": "8",
+   "text": "知识库：水电验收先拿施工图纸，对照每个开关插座和水路点位，现在发现问题好整改 {{claim:claim_718e5abef41a42ff}}；最后让师傅对水管做打压测试 {{claim:claim_f7cb7a8936d04992}}；有公司会给每个空间拍 VR 全景，留下线管水管走向 {{claim:claim_4937555983744403}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_718e5abef41a42ff",
+     "fingerprint": "7f1b0cfaa219ef9a"
+    },
+    {
+     "claim_id": "claim_f7cb7a8936d04992",
+     "fingerprint": "a3c7dcafbd185ecb"
+    },
+    {
+     "claim_id": "claim_4937555983744403",
+     "fingerprint": "9389c2a9eb0e607e"
+    }
+   ],
+   "claim_only": true
+  },
+  "c6-9": {
+   "label": "9",
+   "text": "知识库：做完防水停工约两天，放满水等 48 小时，联系物业到楼下看顶棚是否漏水，确认不漏再贴砖 {{claim:claim_902809e8722846d1}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_902809e8722846d1",
+     "fingerprint": "bf8a6063d8b8764c"
+    }
+   ],
+   "claim_only": true
+  },
+  "c6-10": {
+   "label": "10",
+   "text": "知识库：用空鼓锤检查所有砖，重点是墙砖四个角和窗户一圈，博主的标准是单片空鼓率不高于 5% {{claim:claim_471d566b6b9b49eb}}；另一位博主认为客餐厅过道、卧室等常走动的地方，花洒区，以及卫生间窗框、下水管和插座周边，都不能有空鼓 {{claim:claim_d5073217d5684ecf}} {{claim:claim_198bd37ab40845c5}} {{claim:claim_70076e4d9ed746c9}}。合格线以合同约定的验收标准为准（见[注释 17](note:c6-17)）。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_471d566b6b9b49eb",
+     "fingerprint": "6f6910a06ff2a06d"
+    },
+    {
+     "claim_id": "claim_d5073217d5684ecf",
+     "fingerprint": "f493cccd7cba1293"
+    },
+    {
+     "claim_id": "claim_198bd37ab40845c5",
+     "fingerprint": "be7ec22c7b5dc624"
+    },
+    {
+     "claim_id": "claim_70076e4d9ed746c9",
+     "fingerprint": "8f29dd5354910e7f"
+    }
+   ],
+   "claim_only": true
+  },
+  "c6-11": {
+   "label": "11",
+   "text": "知识库：腻子完成后先用激光水平仪查阴阳角垂直度 {{claim:claim_fb156b856936466b}}，再用 2 米靠尺米字形贴墙查平整度，博主的标准是误差不超过 2 毫米，射灯照到的墙面要重点看 {{claim:claim_f8eab9a67770462d}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_fb156b856936466b",
+     "fingerprint": "982ff62279b564d1"
+    },
+    {
+     "claim_id": "claim_f8eab9a67770462d",
+     "fingerprint": "ca55bf465fa868c7"
+    }
+   ],
+   "claim_only": true
+  },
+  "c6-12": {
+   "label": "12",
+   "text": "黑龙江示范文本第 10.3 条：乙方提前两天通知甲方在约定日期内验收，“甲方未按照约定时限进行验收且未对工程质量提出异议的，可视为甲方对工程验收合格”。第 10.2 条：乙方未通知甲方验收就擅自进入下一阶段的，甲方有权要求立即停工，损失由乙方承担；甲方无正当理由拒绝验收的，乙方可以中止施工。"
+  },
+  "c6-13": {
+   "label": "13",
+   "text": "知识库作者观点：前面的工序没验收，后边的工人别进场，避免工人拿钱跑路、没有售后 {{claim:claim_0068021b456a479c}}。另有作者主张工艺或材料与约定不符时施工方免费返工，并写入合同 {{claim:claim_a8ac02b6c0e84260}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_0068021b456a479c",
+     "fingerprint": "7f749193d1196f0d"
+    },
+    {
+     "claim_id": "claim_a8ac02b6c0e84260",
+     "fingerprint": "539bb629b5d7cb26"
+    }
+   ],
+   "claim_only": true
+  },
+  "c6-14": {
+   "label": "14",
+   "text": "人民日报（新华网 2025-08-29）引河北省消保委律师团副团长赵哲锋：水电改造等隐蔽工程完工后，要求现场签字确认再覆盖。黑龙江示范文本第 10.2 条同样要求验收合格签字后才进入下一阶段。"
+  },
+  "c6-15": {
+   "label": "15",
+   "text": "人民日报（新华网 2025-08-29）：重庆一位业主 2024 年末在社交媒体上找了装修团队，材料进场后就把款项付清，对方签合同后以“指定装修人员已经离职”等理由持续拖延工期；答应退款后两个月不接电话。2025 年 4 月法院判决退还剩余款项，但对方有拖欠执行的历史。法治日报-家装乱象（2025-11）：受访业主普遍反映，“一旦款项结清或出现质量问题，态度便急转直下”。"
+  },
+  "c6-16": {
+   "label": "16",
+   "text": "人民日报（新华网 2025-08-29）引赵哲锋：对施工过程拍照录像，通过微信群实时沟通留痕，保存合同、票据、沟通记录、现场照片和视频、检测报告。海淀法院 2024-10 提示：发现问题通过拍照、录像、保留聊天记录等方式固定证据。"
+  },
+  "c6-17": {
+   "label": "17",
+   "text": "黑龙江示范文本第 9.1 条给出可选标准：《建筑装饰装修工程质量验收标准》GB 50210-2018、《住宅室内装饰装修工程质量验收规范》JGJ/T 304-2013，或双方约定的其他标准。海淀法院一案中，合同约定参照北京市地方标准《居住建筑装饰工程质量验收规范》。"
+  },
+  "c6-18": {
+   "label": "18",
+   "text": "黑龙江示范文本第 10.3 条及附件 6《工程验收单》（甲方、监理、乙方分别签署意见）、附件 7《工程结算单》。"
+  },
+  "c6-19": {
+   "label": "19",
+   "text": "黑龙江示范文本第 10.10 条：竣工验收中遇到工程质量、室内空气质量、结算等方面的个别非重大问题，双方协商一致的，甲方可以签《解决竣工验收遗留问题协议》（附件 9）后先行入住。附件 9 的列：遗留问题、处理方法、责任划分、完成时限、费用承担。"
+  },
+  "c6-20": {
+   "label": "20",
+   "text": "海淀法院 2024-10，卢女士案：工期严重拖延，双方未做竣工验收，业主就开始使用房屋。法院认为业主“实际已进行了使用”，确认工程已竣工交付，判业主支付剩余工程款 9.6 万元；同时判公司支付逾期违约金 8.5 万元。黑龙江示范文本第 12.5 条：甲方未办验收、结算就提前使用或擅自入住，导致无法验收或造成损失的，后果自负；第 10.5 条：未经联合验收即入住的，保修期从甲方收到验收通知之日起算。"
+  },
+  "c6-21": {
+   "label": "21",
+   "text": "人民日报（新华网 2025-08-29）：河北保定一位业主以近 6 万元订购定制家具，验收时发现柜门缝隙大、把手高度不一、餐边柜尺寸差近 1 厘米、台面打胶粗细不一；品牌方称“误差在允许范围内，只能安排工人维修”。业主向市场监管部门投诉，经家具市场、品牌方、业主四方调解，品牌方重做餐边柜并修补其他问题。"
+  },
+  "c6-22": {
+   "label": "22",
+   "text": "黑龙江示范文本第 10.7 条：对材料、工程质量、室内空气质量有争议且协商不成的，可委托有资质的第三方检测机构，费用由甲方先垫付；检测合格的由甲方承担，不合格的由乙方承担检测费和返工、返修费用。"
+  },
+  "c6-23": {
+   "label": "23",
+   "text": "黑龙江示范文本第 9.2 条：室内环境污染检测“可参照”GB 50325-2020 执行（文本写作《民用建筑工程室内环境污染控制规范》，2020 版的正式名称为《……控制标准》）。第 10.1 条把室内空气质量检测列入竣工整体验收。第 12.6 条：因乙方责任空气质量不合格的，乙方查找原因并解决，延期按逾期计违约金；仍不达标且确属乙方责任的，甲方可要求返还不达标项目的全部工程款。"
+  },
+  "c6-24": {
+   "label": "24",
+   "text": "海淀法院 2024-10，小刘案：2019 年 12 月竣工验收，2021 年 6 月业主自行检测甲醛不达标，公司治理后 8、9 月复测仍不达标。公司抗辩前两次检测是业主单方委托。法院判公司返还装修款约 7.9 万元，赔偿房屋空置损失约 9.8 万元和检测费；业主要求返还的主材款 14 万元，法院认为不属于装修款，未支持。法官建议：竣工验收后入住前，在装修公司人员在场时委托第三方检测机构检测。"
+  },
+  "c6-25": {
+   "label": "25",
+   "text": "海淀法院一案（中国普法 2025-02）：业主自行检测甲醛和 TVOC 不合格，在外租房 3 个月。公司接到报告次日完成治理，业主签字确认；之后双方没有共同委托复测，业主也没有自行复测。法院支持了检测费和搬家费，房租只支持一个半月，共计约 2.1 万元。"
+  },
+  "c6-26": {
+   "label": "26",
+   "text": "吉安中院（大江网 2025-03-31）：14 万元包工包料，合同约定材料和室内空气质量符合国家标准；入住后孩子生病住院，检测甲醛超标，通风半年复测仍超标，法院委托检测最高为限值的 20 倍多。一审判赔房租约 6 万元，二审改判返还 40% 装修款并赔偿 8 个月租金，共约 10 万元。石景山法院（澎湃新闻 2025-06-05）：合同约定空气质量不合格每延误一日按造价 2‰ 支付违约金；竣工后检测甲醛轻微超标，治理后复测达标，公司未能证明问题由业主造成，法院判赔违约金和租房损失 2.2 万元及除味用品费用。"
+  },
+  "c7-1": {
+   "label": "1",
+   "text": "《住宅室内装饰装修管理办法》第三十二条：保修期自住宅室内装饰装修工程竣工验收合格之日起计算。第三十条：验收合格后，装饰装修企业应当出具住宅室内装饰装修质量保修书。"
+  },
+  "c7-2": {
+   "label": "2",
+   "text": "黑龙江示范文本第 10.4 条：竣工验收合格、尾款结清后办理移交，乙方开具加盖财务专用章的收据或发票，双方签署保修单，乙方提供其施工部分的水、电隐蔽工程改造图。管线照片见[第 6 章注释 16](note:c6-16)。"
+  },
+  "c7-3": {
+   "label": "3",
+   "text": "黑龙江示范文本附件 8《家装工程保修单》：分别填写隐蔽工程（水电热及防水）、其他基础装修工程、代购主材及定制家具家电设备的保修起止日期，业主签字、公司签章后生效。"
+  },
+  "c7-4": {
+   "label": "4",
+   "text": "《住宅室内装饰装修管理办法》第三十一条：装饰装修企业负责采购材料及设备的，竣工后应当向业主提交说明书、保修单和环保说明书。"
+  },
+  "c7-5": {
+   "label": "5",
+   "text": "黑龙江示范文本附件 5《变更单》、附件 6《验收单》、附件 7《结算单》、附件 9《解决竣工验收遗留问题协议》。"
+  },
+  "c7-6": {
+   "label": "6",
+   "text": "山东省消协家装家居消费调查（新黄河 2025-03-03 报道）：49.66% 的受访者遇到过没拿到发票或付款凭证。"
+  },
+  "c7-7": {
+   "label": "7",
+   "text": "黑龙江示范文本第 10.5 条：甲方未经双方联合验收即入住的，保修期自甲方收到验收通知之日起计算。"
+  },
+  "c7-8": {
+   "label": "8",
+   "text": "《住宅室内装饰装修管理办法》第三十二条原文：“在正常使用条件下，住宅室内装饰装修工程的最低保修期限为二年，有防水要求的厨房、卫生间和外墙面的防渗漏为五年。”黑龙江示范文本第 10.5、10.6 条：防水、防渗漏不少于 5 年，其余装修工程不少于 2 年，定制产品不少于 3 年。"
+  },
+  "c7-9": {
+   "label": "9",
+   "text": "黑龙江示范文本附件 2-2 注：乙方购置的主材由乙方安装并负责质保；甲方购置的主材可委托乙方安装，乙方不负责产品质保。另见第 1 章 1.1 节的“供应方／安装方／保修方”分工清单。"
+  },
+  "c7-10": {
+   "label": "10",
+   "text": "黑龙江示范文本第 10.8 条列出的不保修情形：非乙方施工的防水、隐蔽工程出的问题；甲方自行改造管线或冬季停热造成水管冻裂；甲方自行改接电路、超载用电；非正常使用、人为损坏、建筑本身问题、不可抗力。"
+  },
+  "c7-11": {
+   "label": "11",
+   "text": "中山市消委会 2026-07：有条款约定“竣工验收后，装修公司视为履行完合同全部义务，消费者不得再以任何理由主张权利”，实际免除了装修公司的保修责任。见[第 5 章注释 29](note:c5-29)。"
+  },
+  "c7-12": {
+   "label": "12",
+   "text": "山东省消协家装家居消费调查（新黄河 2025-03-03 报道）：51.34% 的受访者反映商家不履行保修承诺。"
+  },
+  "c7-13": {
+   "label": "13",
+   "text": "法治日报-家装乱象（2025-11）：浙江湖州一位业主花近 30 万元做全包，入住不到半年墙面开裂、起泡、水管漏水，“签合同前，装修公司承诺终身售后，出了问题却联系不上”。银川-注销：装修公司施工中停止经营并办理了注销，负责人对已出现的地砖返潮渗水问题拒绝维修。"
+  },
+  "c7-14": {
+   "label": "14",
+   "text": "法治日报-家装乱象（2025-11）：上海一位业主选了一家知名连锁装修公司，装修结束后第 3 年墙面布满裂缝，部分找平层与腻子层脱离。业主了解到是施工时没做挂网；公司以“仅提供 2 年保修服务，房屋已过保”为由拒绝免费维修，并称挂网要加钱、当时方案里没有这一项。"
+  },
+  "c7-15": {
+   "label": "15",
+   "text": "例如[搜狐号文章](https://sohu.com/a/1025833095_122719118)（2026-05，自媒体）称水电隐蔽工程最低保修 5 年。《住宅室内装饰装修管理办法》第三十二条只列出 2 年和防渗漏 5 年；黑龙江示范文本附件 8 备注“隐蔽工程保修期应不少于 5 年”，属于该地区示范文本的写法。"
+  },
+  "c7-16": {
+   "label": "16",
+   "text": "黑龙江示范文本第 10.9 条：属于保修范围的，乙方应在接到保修通知后约定天数内无偿维修；无正当理由拒绝维修的，甲方可委托第三方代为维修，费用由乙方承担。"
+  },
+  "c7-17": {
+   "label": "17",
+   "text": "编辑建议。依据见[注释 8](note:c7-8)、14：保修期从竣工验收合格之日起算，过保后公司可以拒绝免费维修。"
+  },
+  "c7-18": {
+   "label": "18",
+   "text": "法治日报-家装乱象（2025-11）：湖州那位业主验收时对质量不满意，没有结清部分尾款，公司回复“钱结清了都好说，尾款不结就相当于买断售后”，业主已通过 12315 投诉。受访律师：免除装修公司主要义务的格式条款应属无效。拒付尾款的风险见[注释 19](note:c7-19)。"
+  },
+  "c7-19": {
+   "label": "19",
+   "text": "蔡甸法院 2023-11：业主付了 95% 的工程款，入住后以橱柜柜体、柜门有缝隙和划痕为由拒付尾款。公司认为照片是放大拍摄的；法院认为放大不影响证明目的，认定存在质量问题，酌定损失从尾款中扣减。法官提示：验收合格后再入住，径直入住可能被视为验收合格；注意留存证据；因房屋质量问题起诉的诉讼时效为 3 年。"
+  },
+  "c7-20": {
+   "label": "20",
+   "text": "银川-注销（2026-10）：业主在某品牌家居门店签约，签约公司是门店的分销合作商；合作商撤店后，品牌方表示与该公司无隶属关系，不负责其施工和售后。律师意见：公司已注销的，被告变更为股东；仅停业未注销的，起诉公司；进入破产程序的，向破产管理人申报债权；对方推诿的，可申请财产保全。"
+  },
+  "c7-21": {
+   "label": "21",
+   "text": "《住宅室内装饰装修管理办法》第二十五条：纠纷可以协商或调解解决；不愿协商、调解或协商、调解不成的，可以依法申请仲裁或向人民法院起诉。黑龙江示范文本第 15.1 条：可以向当地行业主管部门、消费者协会等组织请求调解；第 15.2 条要求在仲裁和诉讼之间选择一种。银川一案中，市场监管部门组织过调解。"
+  },
+  "c8-1": {
+   "label": "1",
+   "text": "用户经验汇总（什么值得买，2026-08-25）：按寿命把投入分三层，墙里的布线最难改，协议和网关几年后可能迭代，设备可以入住后再加。"
+  },
+  "c8-2": {
+   "label": "2",
+   "text": "《法治日报》2026-11-04 调查：多名受访者表示，真正用到的高频功能只有几项，例如进门开灯、离家断电、洗衣结束提醒。用户经验汇总把门锁、灯光、窗帘、传感器列为高频四件套。"
+  },
+  "c8-3": {
+   "label": "3",
+   "text": "《法治日报》2026-11-04 引用市场监管总局数据：2025 年全国 12315 平台收到智能设备投诉举报 15.2 万件，其中智能家居 2.9 万件，集中在过度宣传、升级失败、App 闪退、兼容性差。江苏省消保委调查：受访者中近六成遇到过问题，品牌间不兼容，手机“变成 App 收纳盒”。"
+  },
+  "c8-4": {
+   "label": "4",
+   "text": "《法治日报》2026-11-04：一位程序员受访者说，普通家庭中负责调试的人一旦顾不上，整套系统容易陷入瘫痪；一位从业者说，场景越复杂，调试成本和售后风险越高，有服务商因此交付低配版本。"
+  },
+  "c8-5": {
+   "label": "5",
+   "text": "用户经验汇总（什么值得买，2026-08-11）：从业者称“目前智能家居行业就是谁卖你的，找谁售后”；有用户遇到代理商售后推诿，品牌总部不管。另一个案例中，电工接错线烧坏开关和屏幕，引出“该找谁”的争议。建议开工前写清楚由谁出布线图、谁的电工接线、谁做通电测试。"
+  },
+  "c8-6": {
+   "label": "6",
+   "text": "《法治日报》2026-11-04：一位智能家居工作室经营者说，每打通一个第三方设备，服务商就要多承担一层售后风险，很多服务商索性不做深度打通。"
+  },
+  "c8-7": {
+   "label": "7",
+   "text": "用户经验汇总（什么值得买，2026-08-25）列出的布线清单，包括网关放在房子几何中心、留常电插座、不要塞进金属弱电箱，以及窗帘盒、扫地机器人、智能马桶、投影、晾衣架、传感器、空调检修口的供电预留。"
+  },
+  "c8-8": {
+   "label": "8",
+   "text": "同上：智能开关需要零线供电；只能用单火开关时，配小功率 LED 灯可能频闪、关灯微亮；智能开关模块较厚，建议用加深底盒。"
+  },
+  "c8-9": {
+   "label": "9",
+   "text": "知识库：每个房间留一根网线，后期装有线 mesh {{claim:claim_9f5c583323dd4c71}}；可以不布光纤，但不要只布光纤不布网线 {{claim:claim_0ee48e26bd094f18}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_9f5c583323dd4c71",
+     "fingerprint": "961231e67980a732"
+    },
+    {
+     "claim_id": "claim_0ee48e26bd094f18",
+     "fingerprint": "b4c3d7b57ab87e68"
+    }
+   ],
+   "claim_only": true
+  },
+  "c8-10": {
+   "label": "10",
+   "text": "知识库：网线必须用超六类，五类已经被淘汰 {{claim:claim_9b07ee5649e1496f}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_9b07ee5649e1496f",
+     "fingerprint": "7df2fd79c04d4545"
+    }
+   ],
+   "claim_only": true
+  },
+  "c8-11": {
+   "label": "11",
+   "text": "知识库：弱电箱留一个排插，给路由器、光猫供电 {{claim:claim_7de181d2f7634284}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_7de181d2f7634284",
+     "fingerprint": "158a059817137e84"
+    }
+   ],
+   "claim_only": true
+  },
+  "c8-12": {
+   "label": "12",
+   "text": "知识库：入户门处装插座，方便给智能锁充电 {{claim:claim_e868d6e543584e88}}；门口留网线装有线监控 {{claim:claim_774434f341014547}}；门外单独走电线和网线 {{claim:claim_045915bf0815487b}}；案例：门外只留了电源线，摄像头适配器没地方装 {{claim:claim_6476100e413c4ded}}。",
+   "claim_refs": [
+    {
+     "claim_id": "claim_e868d6e543584e88",
+     "fingerprint": "dec596a91ca9e4d2"
+    },
+    {
+     "claim_id": "claim_774434f341014547",
+     "fingerprint": "5a77ada3f2df86d3"
+    },
+    {
+     "claim_id": "claim_045915bf0815487b",
+     "fingerprint": "1d140837629a1e3e"
+    },
+    {
+     "claim_id": "claim_6476100e413c4ded",
+     "fingerprint": "6cb12be290af3623"
+    }
+   ],
+   "claim_only": true
+  },
+  "c8-13": {
+   "label": "13",
+   "text": "法治日报-家装乱象（2025-11）：天津一位业主的合同没写水电点位数量，设计师当初说“每个房间至少两个点位”，地暖回填后公司按“超一个点位加 300 元”要求补交 1.495 万元。什么值得买（2026-11-14）：建议签约前问清点位预留和网络改造由谁负责、怎么收费。"
+  },
+  "c8-14": {
+   "label": "14",
+   "text": "用户经验汇总（什么值得买，2026-08-25）：有用户反映厂商通过 OTA 升级改变了已有功能；建议确认联动能否本地执行、不依赖云端。《法治日报》2026-11-04 律师建议关注“相关服务停止后哪些功能仍可正常使用”。"
+  },
+  "c8-15": {
+   "label": "15",
+   "text": "GB/T 46456.1-2025《信息技术设备互连 智能家居互联互通 第 1 部分：架构与通用要求》，2026-02-01 实施，是推荐性标准。商务部等 8 部门《促进智能家居消费行动方案》（2026-09-02）提出“加快制定实施智能家居互联互通等强制性国家标准”。用户经验汇总认为 Matter 协议目前多打通开关、亮度、温度等基础操作。"
+  },
+  "c8-16": {
+   "label": "16",
+   "text": "《法治日报》2026-11-04：一位受访者换了路由器后，所有联动失效，花了几天重新配置。"
+  },
+  "c8-17": {
+   "label": "17",
+   "text": "什么值得买 2026-11-14 汇总小红书晒单：同户型、需求相近的两份全屋智能报价，一份 8000 元、一份 16000 元；常见的膨胀点是“生态标”贴牌第三方硬件、灯带和走线按米报价时单价被抬高、安装费打包成一口价。文中数字为个案。"
+  },
+  "c8-18": {
+   "label": "18",
+   "text": "《法治日报》2024-06-04 增项调查：一位业主做了全屋智能，合同写 56 个水电点位，实际做了 125 个，超出部分另收费（见[第 1 章注释 19](note:c01-19)）。"
+  },
+  "c8-19": {
+   "label": "19",
+   "text": "《法治日报》2026-11-04 律师意见：智能门锁采集的指纹、人脸信息，以及能识别特定个人的家用摄像头影像，多属于个人信息保护法所列的敏感个人信息，企业处理时应取得个人单独同意。"
+  }
+ },
+ "checklist": {
+  "title": "核对清单",
+  "note": "清单用来收集信息、对照合同；打完勾不代表公司可靠，也不代表合同没有问题。",
+  "groups": [
+   {
+    "id": "g1",
+    "title": "一、签约前",
+    "subgroups": [
+     {
+      "title": "选模式、定范围",
+      "items": [
+       {
+        "text": "承包方式（全包、半包等）已写进合同",
+        "sections": [
+         "0.1"
+        ],
+        "tags": [],
+        "id": "g1-1"
+       },
+       {
+        "text": "有一张“供应方／安装方／保修方”分工清单，设计、主辅材、定制、家电、家具都列进去了",
+        "sections": [
+         "0.3",
+         "1.1",
+         "1.2"
+        ],
+        "tags": [],
+        "id": "g1-2"
+       },
+       {
+        "text": "对照材料表，开关面板、瓷砖胶、角阀这类“两边都有”的材料，逐样问过归哪边并写进清单",
+        "sections": [
+         "1.1",
+         "1.2"
+        ],
+        "tags": [],
+        "id": "g1-3"
+       },
+       {
+        "text": "自购材料：供料时间、进场验收、“装坏了”和“材料坏了”的责任，都已写明",
+        "sections": [
+         "1.1",
+         "5.5",
+         "7.2"
+        ],
+        "tags": [
+         "半包"
+        ],
+        "id": "g1-4"
+       },
+       {
+        "text": "有材料供需时间表",
+        "sections": [
+         "1.1"
+        ],
+        "tags": [
+         "半包"
+        ],
+        "id": "g1-5"
+       },
+       {
+        "text": "套餐每个类目包含的具体内容都看过，超出数量怎么计价已写明",
+        "sections": [
+         "1.2"
+        ],
+        "tags": [
+         "全包"
+        ],
+        "id": "g1-6"
+       },
+       {
+        "text": "拆除、清运、搬运、成品保护、管理费已列明",
+        "sections": [
+         "1.3"
+        ],
+        "tags": [],
+        "id": "g1-7"
+       },
+       {
+        "text": "图纸清单和交付时间已写明",
+        "sections": [
+         "1.4"
+        ],
+        "tags": [],
+        "id": "g1-8"
+       },
+       {
+        "text": "旧房：结构、管道改动的审批由谁办已明确；已拿到原始结构图和物业装修协议",
+        "sections": [
+         "1.5"
+        ],
+        "tags": [],
+        "id": "g1-9"
+       }
+      ]
+     },
+     {
+      "title": "核公司",
+      "items": [
+       {
+        "text": "签约主体、营业执照、公章、收款账户四者一致",
+        "sections": [
+         "2.1",
+         "5.8"
+        ],
+        "tags": [],
+        "id": "g1-10"
+       },
+       {
+        "text": "查过签约公司的成立时间、经营异常、被执行记录",
+        "sections": [
+         "2.1",
+         "5.3"
+        ],
+        "tags": [],
+        "id": "g1-11"
+       },
+       {
+        "text": "涉及需要资质的改动，公司有相应资质",
+        "sections": [
+         "2.2"
+        ],
+        "tags": [],
+        "id": "g1-12"
+       },
+       {
+        "text": "没有在展厅当场交定金",
+        "sections": [
+         "2.3"
+        ],
+        "tags": [],
+        "id": "g1-13"
+       },
+       {
+        "text": "看过至少一个正在施工的工地",
+        "sections": [
+         "2.4"
+        ],
+        "tags": [],
+        "id": "g1-14"
+       },
+       {
+        "text": "合同写明了施工负责人和联系方式",
+        "sections": [
+         "3.1"
+        ],
+        "tags": [],
+        "id": "g1-15"
+       },
+       {
+        "text": "问清了是否转包、分包，哪些项目由第三方做；合同写明禁止转包",
+        "sections": [
+         "3.1",
+         "5.7"
+        ],
+        "tags": [],
+        "id": "g1-16"
+       },
+       {
+        "text": "拿到了施工进度表，约定了验收通知方式",
+        "sections": [
+         "3.2"
+        ],
+        "tags": [],
+        "id": "g1-17"
+       },
+       {
+        "text": "如请监理，确认了监理的独立性和服务范围",
+        "sections": [
+         "3.3"
+        ],
+        "tags": [],
+        "id": "g1-18"
+       }
+      ]
+     },
+     {
+      "title": "比报价",
+      "items": [
+       {
+        "text": "报价按最终确认的方案出，每项都有单位、数量、单价",
+        "sections": [
+         "4.1"
+        ],
+        "tags": [],
+        "id": "g1-19"
+       },
+       {
+        "text": "按施工顺序核对过易漏项",
+        "sections": [
+         "4.4"
+        ],
+        "tags": [],
+        "id": "g1-20"
+       },
+       {
+        "text": "材料写到品牌、型号、规格，写明了替代规则；主材在签约前已选定",
+        "sections": [
+         "1.1",
+         "4.2"
+        ],
+        "tags": [],
+        "id": "g1-21"
+       },
+       {
+        "text": "每项附了工艺做法，看过所有“另计”“按实际发生”的条件",
+        "sections": [
+         "4.3",
+         "4.4"
+        ],
+        "tags": [],
+        "id": "g1-22"
+       },
+       {
+        "text": "防水高度、找平厚度、墙面平整标准已写明",
+        "sections": [
+         "4.3"
+        ],
+        "tags": [],
+        "id": "g1-23"
+       },
+       {
+        "text": "半包和全包按同一口径比较过",
+        "sections": [
+         "4.5"
+        ],
+        "tags": [],
+        "id": "g1-24"
+       }
+      ]
+     },
+     {
+      "title": "合同条款",
+      "items": [
+       {
+        "text": "签约前交的钱（定金、意向金、设计费）写明了性质、用途和退款条件",
+        "sections": [
+         "1.4",
+         "5.1"
+        ],
+        "tags": [],
+        "id": "g1-25"
+       },
+       {
+        "text": "每一期付款对应一个验收节点，尾款留到竣工验收之后",
+        "sections": [
+         "5.2",
+         "6.2"
+        ],
+        "tags": [],
+        "id": "g1-26"
+       },
+       {
+        "text": "问过能否资金存管、能否留质保金",
+        "sections": [
+         "5.3"
+        ],
+        "tags": [],
+        "id": "g1-27"
+       },
+       {
+        "text": "增项和现场改动必须书面确认，计价方式已写明；增项款和其他款项都付给公司",
+        "sections": [
+         "1.5",
+         "3.1",
+         "5.4"
+        ],
+        "tags": [],
+        "id": "g1-28"
+       },
+       {
+        "text": "结算超预算的上限和超出部分由谁承担已写明",
+        "sections": [
+         "1.2",
+         "4.4",
+         "5.4"
+        ],
+        "tags": [],
+        "id": "g1-29"
+       },
+       {
+        "text": "工期起算、顺延条件、违约金已写明，双方对等",
+        "sections": [
+         "5.6"
+        ],
+        "tags": [],
+        "id": "g1-30"
+       },
+       {
+        "text": "解约违约金和结算方式已写明",
+        "sections": [
+         "5.7"
+        ],
+        "tags": [],
+        "id": "g1-31"
+       },
+       {
+        "text": "验收标准（国标、行标还是地方标准）已写明",
+        "sections": [
+         "6.2"
+        ],
+        "tags": [],
+        "id": "g1-32"
+       },
+       {
+        "text": "空气检测的标准、委托方、不合格怎么处理已写明",
+        "sections": [
+         "6.4"
+        ],
+        "tags": [],
+        "id": "g1-33"
+       },
+       {
+        "text": "防水、水电、基础装修、定制家具的保修期限和起算日已写明",
+        "sections": [
+         "7.2"
+        ],
+        "tags": [],
+        "id": "g1-34"
+       },
+       {
+        "text": "报修后几天内上门、公司拒修怎么处理已写明",
+        "sections": [
+         "7.3"
+        ],
+        "tags": [],
+        "id": "g1-35"
+       },
+       {
+        "text": "合同里没有“验收后不得再主张权利”这类条款",
+        "sections": [
+         "5.8",
+         "7.2"
+        ],
+        "tags": [],
+        "id": "g1-36"
+       },
+       {
+        "text": "所有承诺和优惠都写进合同并盖章",
+        "sections": [
+         "5.8"
+        ],
+        "tags": [],
+        "id": "g1-37"
+       },
+       {
+        "text": "附件齐全（见下方“要拿到的材料”）",
+        "sections": [
+         "5.8"
+        ],
+        "tags": [],
+        "id": "g1-38"
+       },
+       {
+        "text": "如办装修贷，已问清放款对象和方式",
+        "sections": [
+         "5.9"
+        ],
+        "tags": [],
+        "id": "g1-39"
+       }
+      ]
+     },
+     {
+      "title": "全屋智能（选做）",
+      "items": [
+       {
+        "text": "布线、设备、调试、售后分别由谁负责已写明",
+        "sections": [
+         "8.2"
+        ],
+        "tags": [],
+        "id": "g1-40"
+       },
+       {
+        "text": "签约主体有品牌授权",
+        "sections": [
+         "8.2"
+        ],
+        "tags": [],
+        "id": "g1-41"
+       },
+       {
+        "text": "设备清单写到型号、数量和单价，安装调试费已写明",
+        "sections": [
+         "8.5"
+        ],
+        "tags": [],
+        "id": "g1-42"
+       },
+       {
+        "text": "布线和点位在装修报价还是智能报价里，已说清",
+        "sections": [
+         "8.3",
+         "8.5"
+        ],
+        "tags": [],
+        "id": "g1-43"
+       },
+       {
+        "text": "场景清单和验收方式已写明",
+        "sections": [
+         "8.5"
+        ],
+        "tags": [],
+        "id": "g1-44"
+       },
+       {
+        "text": "问清了断网和服务停止后哪些功能能用",
+        "sections": [
+         "8.4"
+        ],
+        "tags": [],
+        "id": "g1-45"
+       },
+       {
+        "text": "摄像头位置和数据存储方式已确认",
+        "sections": [
+         "8.6"
+        ],
+        "tags": [],
+        "id": "g1-46"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "g2",
+    "title": "二、施工中",
+    "subgroups": [
+     {
+      "title": "",
+      "items": [
+       {
+        "text": "水电交底前，智能布线清单已交给设计师和电工；开关底盒留零线；网关位置和电源已定",
+        "sections": [
+         "8.3"
+        ],
+        "tags": [
+         "智能"
+        ],
+        "id": "g2-1"
+       },
+       {
+        "text": "每批材料到场都有交接记录，品牌型号与合同一致",
+        "sections": [
+         "6.1"
+        ],
+        "tags": [],
+        "id": "g2-2"
+       },
+       {
+        "text": "每个阶段验收后签了验收单，再付对应款项",
+        "sections": [
+         "6.2"
+        ],
+        "tags": [],
+        "id": "g2-3"
+       },
+       {
+        "text": "打压、闭水等测试，自己或监理在场",
+        "sections": [
+         "6.2"
+        ],
+        "tags": [],
+        "id": "g2-4"
+       },
+       {
+        "text": "封槽、贴砖前拍了管线照片和视频",
+        "sections": [
+         "6.2"
+        ],
+        "tags": [],
+        "id": "g2-5"
+       },
+       {
+        "text": "变更都签了变更单",
+        "sections": [
+         "5.4"
+        ],
+        "tags": [],
+        "id": "g2-6"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "g3",
+    "title": "三、竣工和交接",
+    "subgroups": [
+     {
+      "title": "",
+      "items": [
+       {
+        "text": "竣工验收前没有提前入住",
+        "sections": [
+         "6.3",
+         "7.1"
+        ],
+        "tags": [],
+        "id": "g3-1"
+       },
+       {
+        "text": "遗留问题写进了协议，有整改期限",
+        "sections": [
+         "6.3"
+        ],
+        "tags": [],
+        "id": "g3-2"
+       },
+       {
+        "text": "拿到了水电图和管线照片、视频",
+        "sections": [
+         "7.1"
+        ],
+        "tags": [],
+        "id": "g3-3"
+       },
+       {
+        "text": "拿到了盖财务专用章的收据或发票",
+        "sections": [
+         "7.1"
+        ],
+        "tags": [],
+        "id": "g3-4"
+       },
+       {
+        "text": "保修单双方签字，写清各项期限和起算日",
+        "sections": [
+         "7.1",
+         "7.2"
+        ],
+        "tags": [],
+        "id": "g3-5"
+       },
+       {
+        "text": "公司代购的材料和设备有说明书、保修单",
+        "sections": [
+         "7.1"
+        ],
+        "tags": [],
+        "id": "g3-6"
+       },
+       {
+        "text": "在日历上记下保修到期日，到期前全面检查一遍",
+        "sections": [
+         "7.3"
+        ],
+        "tags": [],
+        "id": "g3-7"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "documents": {
+   "header": [
+    "时间",
+    "材料",
+    "里面要写明",
+    "出处"
+   ],
+   "rows": [
+    [
+     "签约时",
+     "合同正文，盖签约公司公章",
+     "双方名称、地址、电话；房屋间数和建筑面积；装修项目、做法、规格、质量要求和验收方式；开工和竣工日期；保修内容和期限；价格、计价方式、付款方式和时间；变更和解除的条件；违约责任和解决纠纷的途径；合同生效时间",
+     "5.8"
+    ],
+    [
+     "签约时",
+     "分工清单（供应方／安装方／保修方）",
+     "设计、主材、辅材、定制、家电、家具逐项写明谁供应、谁安装、谁保修",
+     "0.3、1.1"
+    ],
+    [
+     "签约时",
+     "预算单，附工艺和用料说明",
+     "每项的名称、单位、数量、单价、工艺做法和用料；防水高度、找平厚度、墙面平整标准；每个“另计”“按实际发生”的条件；拆除、清运、搬运、管理费、税金是否另收",
+     "1.3、4.1、4.3、4.4"
+    ],
+    [
+     "签约时",
+     "双方材料清单",
+     "每样材料的品牌、型号、规格、数量，由哪一方供应；缺货时怎么替换、替换要谁同意",
+     "1.1、4.2"
+    ],
+    [
+     "签约时",
+     "赠送项目清单",
+     "每个赠送项目的名称、数量和型号",
+     "1.2"
+    ],
+    [
+     "签约时",
+     "施工图纸",
+     "平面、顶面、立面、水电图各几张，交付日期；每页双方签字",
+     "1.4"
+    ],
+    [
+     "签约时",
+     "材料供需时间表（半包）",
+     "每样材料最晚到场日期；到场由谁验收；晚到或不合格时工期和费用怎么算",
+     "1.1、5.5"
+    ],
+    [
+     "签约时",
+     "变更单、验收单、结算单、保修单的模板",
+     "变更单：变更内容、原价、新价、工期变化，双方签字；其他几张的内容见下面各行",
+     "5.4、5.8"
+    ],
+    [
+     "签约时",
+     "智能设备清单、点位图、场景清单（选做）",
+     "设备型号、数量、单价；安装调试费；布线和点位算在哪份报价里；每个场景怎么演示验收",
+     "8.3、8.5"
+    ],
+    [
+     "开工前",
+     "物业装修管理服务协议；改结构或管道时的审批文件",
+     "施工内容和期限、允许施工的时间、垃圾清运方式、管理服务费、违约责任；押金和管理费由谁出",
+     "1.3、1.5"
+    ],
+    [
+     "施工中",
+     "材料交接记录、各阶段验收单和结算单、变更单",
+     "交接记录：日期，材料品牌、型号、规格、数量，双方签字；验收单：验收项目和结果，双方（有监理时加监理）签字；结算单：这一期的金额",
+     "6.1、6.2、5.4"
+    ],
+    [
+     "竣工时",
+     "遗留问题协议、空气检测报告（如约定）",
+     "协议：每个遗留问题的处理方法、责任划分、完成期限、费用承担；检测报告：按约定的标准检测、由约定的一方委托",
+     "6.3、6.4"
+    ],
+    [
+     "交接时",
+     "水电图和管线照片视频、收据或发票、保修单、代购产品的说明书和保修单",
+     "保修单：隐蔽工程（水电和防水）、其他基础装修、代购主材和定制家具家电分别写保修起止日期，双方签字盖章；收据或发票盖财务专用章",
+     "7.1、7.2"
+    ],
+    [
+     "报修时",
+     "报修记录、问题照片和视频、付款凭证",
+     "报修日期和方式、问题描述、公司答复和上门日期",
+     "7.3"
+    ]
+   ],
+   "checkable_rows": [
+    0
+   ],
+   "lead": "签字前逐份对照“里面要写明”，缺了哪项，让公司补进合同或附件再签。合同正文的几项是法规要求的必备内容，可以逐项勾选。",
+   "source": "“合同正文”一行按《住宅室内装饰装修管理办法》第二十四条，“物业装修管理服务协议”一行按同一办法第十六条（[中国政府网](https://www.gov.cn/zhengce/2002-03/05/content_5712023.htm)）；其他各行的依据见出处小节的注释。"
+  }
+ }
+}

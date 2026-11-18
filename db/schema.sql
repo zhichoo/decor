@@ -11,6 +11,10 @@ CREATE TABLE public.claims (
     author_stance text,
     content_type text,
     source_quotes jsonb,
+    field_evidence jsonb,
+    source_scope text,
+    scope_quote text,
+    evidence_contract text,
     process_stage text NOT NULL,
     original_conclusion text NOT NULL,
     conditions text NOT NULL,
@@ -37,7 +41,8 @@ CREATE TABLE public.extraction_runs (
     status text NOT NULL,
     error_message text,
     created_at bigint NOT NULL,
-    raw_response_json jsonb
+    raw_response_json jsonb,
+    review_data jsonb
 );
 CREATE TABLE public.sources (
     id text NOT NULL,
@@ -75,6 +80,7 @@ CREATE TABLE public.videos (
     published_at_ts timestamp with time zone,
     has_transcript boolean DEFAULT false,
     transcript_length integer DEFAULT 0,
+    purged_at bigint,
     deleted_at integer,
     deleted_by text,
     delete_reason text,
@@ -122,3 +128,60 @@ ALTER TABLE ONLY public.extraction_runs
     ADD CONSTRAINT extraction_runs_video_id_fkey FOREIGN KEY (video_id) REFERENCES public.videos(id) ON DELETE CASCADE;
 ALTER TABLE ONLY public.videos
     ADD CONSTRAINT videos_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
+
+-- Pairwise claim navigation and durable indexing jobs.
+CREATE TABLE public.claim_relations (
+    claim_a_id text NOT NULL,
+    claim_b_id text NOT NULL,
+    fingerprint_a text NOT NULL,
+    fingerprint_b text NOT NULL,
+    kind text NOT NULL,
+    reason text NOT NULL,
+    version text NOT NULL,
+    updated_at bigint NOT NULL
+);
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_check CHECK ((claim_a_id < claim_b_id));
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_claim_a_id_fkey FOREIGN KEY (claim_a_id) REFERENCES public.claims(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_claim_a_id_not_null NOT NULL claim_a_id;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_claim_b_id_fkey FOREIGN KEY (claim_b_id) REFERENCES public.claims(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_claim_b_id_not_null NOT NULL claim_b_id;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_fingerprint_a_not_null NOT NULL fingerprint_a;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_fingerprint_b_not_null NOT NULL fingerprint_b;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_kind_check CHECK ((kind = ANY (ARRAY['opposite'::text, 'equivalent'::text, 'conditions'::text, 'similar'::text, 'distinct'::text])));
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_kind_not_null NOT NULL kind;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_pkey PRIMARY KEY (claim_a_id, claim_b_id);
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_reason_not_null NOT NULL reason;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_updated_at_not_null NOT NULL updated_at;
+ALTER TABLE ONLY public.claim_relations
+    ADD CONSTRAINT claim_relations_version_not_null NOT NULL version;
+CREATE TABLE public.claim_relation_jobs (
+    claim_id text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    updated_at bigint NOT NULL
+);
+ALTER TABLE ONLY public.claim_relation_jobs
+    ADD CONSTRAINT claim_relation_jobs_claim_id_fkey FOREIGN KEY (claim_id) REFERENCES public.claims(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.claim_relation_jobs
+    ADD CONSTRAINT claim_relation_jobs_claim_id_not_null NOT NULL claim_id;
+ALTER TABLE ONLY public.claim_relation_jobs
+    ADD CONSTRAINT claim_relation_jobs_pkey PRIMARY KEY (claim_id);
+ALTER TABLE ONLY public.claim_relation_jobs
+    ADD CONSTRAINT claim_relation_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'started'::text, 'done'::text, 'failed'::text])));
+ALTER TABLE ONLY public.claim_relation_jobs
+    ADD CONSTRAINT claim_relation_jobs_status_not_null NOT NULL status;
+ALTER TABLE ONLY public.claim_relation_jobs
+    ADD CONSTRAINT claim_relation_jobs_updated_at_not_null NOT NULL updated_at;
+CREATE INDEX idx_claim_relations_b ON public.claim_relations USING btree (claim_b_id);
+CREATE INDEX idx_claim_relation_jobs_pending ON public.claim_relation_jobs USING btree (updated_at, claim_id) WHERE (status = 'pending'::text);

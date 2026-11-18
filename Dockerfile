@@ -22,9 +22,10 @@ RUN pip install -r backend/requirements.txt \
     && chown -R decor:decor /app /opt/playwright
 
 COPY --chown=decor:decor backend/*.py /app/backend/
-COPY --chown=decor:decor scripts/init_db.py scripts/migrate_transcript_jobs.py scripts/migrate_claim_context.py scripts/setup_local_asr.py /app/scripts/
+COPY --chown=decor:decor scripts/init_db.py scripts/migrate_transcript_jobs.py scripts/migrate_claim_context.py scripts/migrate_claim_relations.py scripts/refresh_claim_relations.py scripts/setup_local_asr.py scripts/quality_baseline.py /app/scripts/
 COPY --chown=decor:decor db/schema.sql /app/db/schema.sql
 COPY --chown=decor:decor web/ /app/web/
+COPY --chown=decor:decor content/ /app/content/
 COPY --chown=decor:decor docker/entrypoint.py /app/docker/entrypoint.py
 
 USER decor

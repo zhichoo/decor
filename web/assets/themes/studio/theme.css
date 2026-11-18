@@ -1,0 +1,884 @@
+/* Hallmark · shape: app screen · genre: editorial · theme: Studio (by request) · redesign: full
+ * nav: horizontal project navigation · signature: renovation knowledge proof cards
+ * states: existing loading, empty, error and full · axes: light/roman-serif/warm · posture: restrained · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, replaced the warm sidebar with a cool proof-sheet navigation and unboxed filters. */
+/* Hallmark · answered F4 · the dark category selection is filter state, while the orange button is the page action. */
+/* Hallmark · answered F7 · shared control recipes keep the existing collection, progress and knowledge workflows consistent. */
+@import url("./tokens.css");
+@import url("./base.css");
+
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/geist-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Hedvig Letters Serif";
+  src: url("./fonts/hedvig-letters-serif-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root[data-theme="studio"] {
+  --font-display: "Hedvig Letters Serif", "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+  --font-body: "Geist", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --bg: var(--color-paper);
+  --surface: var(--color-paper-hi);
+  --surface-2: var(--color-paper-2);
+  --surface-3: var(--color-paper-3);
+  --fg: var(--color-ink);
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --muted-2: oklch(54% 0.018 240);
+  --border: var(--color-rule);
+  --border-strong: var(--color-mark);
+  --accent: var(--color-ink-2);
+  --accent-2: var(--color-accent);
+  --accent-soft: var(--color-paper-2);
+  --ink-faint: color-mix(in oklab, var(--color-ink) 8%, transparent);
+  --ok: oklch(39% 0.073 158);
+  --ok-soft: oklch(95% 0.018 158);
+  --danger: oklch(43% 0.14 28);
+  --danger-soft: oklch(96% 0.018 28);
+  --warn: oklch(46% 0.09 73);
+  --warn-soft: oklch(96% 0.023 73);
+  --studio-neutral: oklch(43% 0.047 240);
+  --studio-neutral-soft: oklch(95% 0.013 240);
+  --studio-backdrop: oklch(20% 0.025 250 / 0.4);
+  --studio-dot: color-mix(in oklab, var(--color-ink) 12%, transparent);
+  --studio-gutter: 40px;
+  --studio-content: 1440px;
+  --card-radius: 3px;
+  --card-line: var(--border);
+  --btn-radius: 3px;
+}
+
+html[data-theme="studio"] {
+  scroll-padding-top: 104px;
+}
+
+:where(html[data-theme="studio"]) body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+:where(html[data-theme="studio"]) h1,
+:where(html[data-theme="studio"]) h2,
+:where(html[data-theme="studio"]) h3 { max-width: none; }
+
+:where(html[data-theme="studio"]) body::before,
+:where(html[data-theme="studio"]) body::after,
+:where(html[data-theme="studio"]) .workspace::before,
+:where(html[data-theme="studio"]) .topbar::before,
+:where(html[data-theme="studio"]) .topbar::after {
+  display: none;
+}
+
+:where(html[data-theme="studio"]) .app-shell {
+  display: block;
+  min-height: 100dvh;
+  background: none;
+}
+
+:where(html[data-theme="studio"]) .sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  min-height: 80px;
+  height: auto;
+  max-height: none;
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-sm) max(var(--studio-gutter), calc((100% - var(--studio-content)) / 2 + var(--studio-gutter)));
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: radial-gradient(circle at 1px 1px, var(--studio-dot) 1px, transparent 1.2px) 0 0 / 24px 24px, var(--bg);
+  backdrop-filter: none;
+  overflow: visible;
+}
+
+:where(html[data-theme="studio"]) .brand {
+  display: grid;
+  flex: 0 0 auto;
+  width: auto;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: var(--space-sm);
+  padding: 0;
+  border: 0;
+}
+
+:where(html[data-theme="studio"]) .brand-mark {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .brand-mark img {
+  width: 34px;
+  height: 34px;
+}
+
+:where(html[data-theme="studio"]) .brand strong {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+:where(html[data-theme="studio"]) .brand span {
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+:where(html[data-theme="studio"]) .nav-list {
+  display: flex;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin-left: auto;
+}
+
+:where(html[data-theme="studio"]) .nav-item,
+:where(html[data-theme="studio"]) .sidebar-footer .nav-item {
+  position: relative;
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition: background-color var(--dur-micro), color var(--dur-micro);
+}
+
+:where(html[data-theme="studio"]) .nav-item:hover {
+  padding-left: var(--space-sm);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+:where(html[data-theme="studio"]) .nav-item::after,
+:where(html[data-theme="studio"]) .nav-item.active::after {
+  inset: auto 12px -4px;
+  width: auto;
+  height: 2px;
+  background: transparent;
+  transform: none;
+  transition: none;
+}
+
+:where(html[data-theme="studio"]) .nav-item.active {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+:where(html[data-theme="studio"]) .nav-item.active::after {
+  background: var(--color-accent);
+}
+
+:where(html[data-theme="studio"]) .nav-icon,
+:where(html[data-theme="studio"]) .nav-item:hover .nav-icon,
+:where(html[data-theme="studio"]) .nav-item.active .nav-icon,
+:where(html[data-theme="studio"]) .sidebar-footer .nav-icon {
+  display: grid;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  transform: none;
+}
+
+:where(html[data-theme="studio"]) .nav-icon svg,
+:where(html[data-theme="studio"]) .sidebar-footer .nav-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+:where(html[data-theme="studio"]) .nav-label {
+  display: block;
+  width: auto;
+  overflow: visible;
+  font-size: inherit;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+:where(html[data-theme="studio"]) .sidebar-footer {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 0 0 var(--space-sm);
+  border: 0;
+  border-left: 1px solid var(--border);
+}
+
+:where(html[data-theme="studio"]) .workspace {
+  width: 100%;
+  max-width: var(--studio-content);
+  margin-inline: auto;
+  padding: 36px var(--studio-gutter) var(--space-2xl);
+}
+
+:where(html[data-theme="studio"]) .topbar,
+:where(html[data-theme="studio"]) .workspace:has(> .view.active:not(#overview-view)) .topbar {
+  align-items: center;
+  gap: var(--space-md);
+  margin: 0 0 var(--space-lg);
+  padding: 0 0 var(--space-lg);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+:where(html[data-theme="studio"]) .topbar h1,
+:where(html[data-theme="studio"]) .workspace:has(> .view.active:not(#overview-view)) .topbar h1 {
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+
+:where(html[data-theme="studio"]) .admin-panel {
+  gap: var(--space-sm);
+  font-size: 12px;
+}
+
+:where(html[data-theme="studio"]) .section-heading h2,
+:where(html[data-theme="studio"]) .detail-head h2,
+:where(html[data-theme="studio"]) .detail-claims-heading h2,
+:where(html[data-theme="studio"]) .detail-transcript-heading h3,
+:where(html[data-theme="studio"]) .video-claims-dialog-head h2 {
+  max-width: none;
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-wrap: balance;
+}
+
+:where(html[data-theme="studio"]) .section-heading::before,
+:where(html[data-theme="studio"]) .search-page-head::before {
+  display: none;
+}
+
+:where(html[data-theme="studio"]) .eyebrow,
+:where(html[data-theme="studio"]) .panel-label,
+:where(html[data-theme="studio"]) .summary-grid span,
+:where(html[data-theme="studio"]) .pipeline-card span,
+:where(html[data-theme="studio"]) .queue-log-panel summary small {
+  font-family: var(--font-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+:where(html[data-theme="studio"]) .primary-button,
+:where(html[data-theme="studio"]) .primary-button.small,
+:where(html[data-theme="studio"]) .icon-button,
+:where(html[data-theme="studio"]) .filter-button,
+:where(html[data-theme="studio"]) .log-follow-button,
+:where(html[data-theme="studio"]) .log-close-button {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--btn-radius);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  box-shadow: none;
+  transition: background-color var(--dur-micro), border-color var(--dur-micro), color var(--dur-micro);
+}
+
+:where(html[data-theme="studio"]) .primary-button:hover,
+:where(html[data-theme="studio"]) .icon-button:hover,
+:where(html[data-theme="studio"]) .filter-button:hover,
+:where(html[data-theme="studio"]) .log-follow-button:hover,
+:where(html[data-theme="studio"]) .log-close-button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--fg);
+  transform: none;
+}
+
+:where(html[data-theme="studio"]) .primary-button.red,
+:where(html[data-theme="studio"]) #open-ingest,
+:where(html[data-theme="studio"]) #progress-process-pending {
+  border-color: var(--color-ink);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+
+:where(html[data-theme="studio"]) .primary-button.red:hover,
+:where(html[data-theme="studio"]) #open-ingest:hover,
+:where(html[data-theme="studio"]) #progress-process-pending:hover {
+  border-color: var(--color-ink);
+  background: color-mix(in oklab, var(--color-accent) 85%, var(--surface));
+  color: var(--color-accent-ink);
+}
+
+:where(html[data-theme="studio"]) #update-all-sources {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .primary-button:disabled,
+:where(html[data-theme="studio"]) .primary-button:disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+:where(html[data-theme="studio"]) .filter-button::before { display: none; }
+
+:where(html[data-theme="studio"]) button:active:not(:disabled),
+:where(html[data-theme="studio"]) a.primary-button:active {
+  transform: translateY(1px);
+}
+
+:where(html[data-theme="studio"]) :is(button, a, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+  transition: none;
+}
+
+:where(html[data-theme="studio"]) input,
+:where(html[data-theme="studio"]) textarea,
+:where(html[data-theme="studio"]) select,
+:where(html[data-theme="studio"]) .search-page-head input {
+  border-color: var(--border);
+  border-radius: var(--btn-radius);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-body);
+  accent-color: var(--color-accent);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) #knowledge-layout {
+  gap: 20px;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .knowledge-filter-panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+:where(html[data-theme="studio"]) .knowledge-filter-top-row {
+  align-items: stretch;
+  gap: var(--space-lg);
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .knowledge-filter-row.primary {
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .knowledge-group-toggle {
+  position: relative;
+  min-height: 44px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--btn-radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .knowledge-group-toggle.active {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .knowledge-group-toggle:hover:not(.active),
+:where(html[data-theme="studio"]) #knowledge-view .stage-button:hover:not(.active) {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+:where(html[data-theme="studio"]) #knowledge-query {
+  min-height: 44px;
+  flex: 0 1 360px;
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .knowledge-filter-row.secondary {
+  gap: var(--space-xs);
+  margin: var(--space-md) 0 0;
+  padding: var(--space-md) 0;
+  border-block: 1px solid var(--border);
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .stage-button {
+  min-height: 36px;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-sm);
+  border-color: transparent;
+  border-radius: var(--btn-radius);
+  background: transparent;
+  color: var(--muted);
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .stage-button .category-label {
+  font-size: 13px;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .stage-button .category-count {
+  min-width: 24px;
+  padding: 0 var(--space-2xs);
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .stage-button.active {
+  border-color: var(--border-strong);
+  background: var(--color-ink);
+  color: var(--color-paper-hi);
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .stage-button.active .category-count {
+  background: transparent;
+}
+
+:where(html[data-theme="studio"]) #knowledge-view .knowledge-result-panel {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .claim-library-note {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+:where(html[data-theme="studio"]) #knowledge-results,
+:where(html[data-theme="studio"]) #detail-view #video-claims {
+  --claim-columns: 3;
+  gap: 20px;
+}
+
+:where(html[data-theme="studio"]) .source-card,
+:where(html[data-theme="studio"]) .video-card,
+:where(html[data-theme="studio"]) .progress-card,
+:where(html[data-theme="studio"]) .result-card,
+:where(html[data-theme="studio"]) .transcript-panel,
+:where(html[data-theme="studio"]) .claim-panel,
+:where(html[data-theme="studio"]) .ingest-panel,
+:where(html[data-theme="studio"]) .video-filter-panel {
+  border-color: var(--border);
+  border-radius: var(--card-radius);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .source-card:hover,
+:where(html[data-theme="studio"]) .source-card:focus-visible,
+:where(html[data-theme="studio"]) .video-card:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  box-shadow: none;
+  transform: none;
+}
+
+:where(html[data-theme="studio"]) .claim-card,
+:where(html[data-theme="studio"]) #knowledge-results > .claim-card,
+:where(html[data-theme="studio"]) #detail-view #video-claims > .claim-card,
+:where(html[data-theme="studio"]) .video-claims-dialog-content .claim-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 256px;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .claim-card::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: 1;
+  display: block;
+  width: auto;
+  height: auto;
+  border: 0;
+  background:
+    linear-gradient(var(--color-mark), var(--color-mark)) left top / 8px 1px no-repeat,
+    linear-gradient(var(--color-mark), var(--color-mark)) left top / 1px 8px no-repeat,
+    linear-gradient(var(--color-mark), var(--color-mark)) right top / 8px 1px no-repeat,
+    linear-gradient(var(--color-mark), var(--color-mark)) right top / 1px 8px no-repeat,
+    linear-gradient(var(--color-mark), var(--color-mark)) left bottom / 8px 1px no-repeat,
+    linear-gradient(var(--color-mark), var(--color-mark)) left bottom / 1px 8px no-repeat,
+    linear-gradient(var(--color-mark), var(--color-mark)) right bottom / 8px 1px no-repeat,
+    linear-gradient(var(--color-mark), var(--color-mark)) right bottom / 1px 8px no-repeat;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+:where(html[data-theme="studio"]) .claim-card .claim-card-heading {
+  gap: var(--space-sm);
+}
+
+:where(html[data-theme="studio"]) .claim-card .claim-card-heading h3,
+:where(html[data-theme="studio"]) .video-claims-dialog-content .claim-card h3 {
+  margin: 0;
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+:where(html[data-theme="studio"]) .claim-author-stance,
+:where(html[data-theme="studio"]) .video-state-badge,
+:where(html[data-theme="studio"]) .chip,
+:where(html[data-theme="studio"]) .status {
+  border-radius: 3px;
+  font-family: var(--font-body);
+  letter-spacing: 0;
+}
+
+:where(html[data-theme="studio"]) .claim-author-stance {
+  padding: var(--space-2xs) var(--space-xs);
+  font-size: 11px;
+}
+
+:where(html[data-theme="studio"]) .claim-author-stance[data-stance="statement"] {
+  border-color: color-mix(in oklab, var(--studio-neutral) 20%, var(--border));
+  background: var(--studio-neutral-soft);
+  color: var(--studio-neutral);
+}
+
+:where(html[data-theme="studio"]) .claim-card .claim-conclusion p,
+:where(html[data-theme="studio"]) .video-claims-dialog-content .claim-conclusion p {
+  color: var(--color-ink-2);
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+:where(html[data-theme="studio"]) .claim-card .claim-conditions {
+  padding: var(--space-sm);
+  border: 0;
+  border-radius: 2px;
+  background: var(--surface-2);
+  font-size: 12px;
+}
+
+:where(html[data-theme="studio"]) .claim-more > summary {
+  min-height: 32px;
+  padding: var(--space-2xs) 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+:where(html[data-theme="studio"]) .claim-more > summary:hover,
+:where(html[data-theme="studio"]) .claim-relation-links button:hover {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+  text-underline-offset: 4px;
+}
+
+:where(html[data-theme="studio"]) .claim-card-actions {
+  gap: var(--space-xs);
+  padding-top: var(--space-sm);
+  border-top-color: var(--border);
+}
+
+:where(html[data-theme="studio"]) .claim-stage-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+:where(html[data-theme="studio"]) .claim-card-actions .claim-source-action {
+  min-height: 32px;
+  padding: var(--space-2xs) var(--space-xs);
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+:where(html[data-theme="studio"]) .claim-card-actions .claim-source-action:hover {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+:where(html[data-theme="studio"]) .claim-evidence blockquote {
+  border-left-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+:where(html[data-theme="studio"]) .detail-section-count {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+:where(html[data-theme="studio"]) #detail-view .transcript-panel,
+:where(html[data-theme="studio"]) #detail-view .claim-panel {
+  border-color: var(--border);
+  border-radius: var(--card-radius);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .video-claims-dialog,
+:where(html[data-theme="studio"]) .claim-relations-dialog,
+:where(html[data-theme="studio"]) .video-delete-dialog,
+:where(html[data-theme="studio"]) .admin-login-dialog {
+  width: min(1060px, calc(100% - 48px));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--card-radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .video-delete-dialog,
+:where(html[data-theme="studio"]) .admin-login-dialog {
+  width: min(480px, calc(100% - 32px));
+}
+
+:where(html[data-theme="studio"]) dialog::backdrop,
+:where(html[data-theme="studio"]) .video-claims-dialog::backdrop,
+:where(html[data-theme="studio"]) .video-delete-dialog::backdrop,
+:where(html[data-theme="studio"]) .admin-login-modal {
+  background: var(--studio-backdrop);
+  backdrop-filter: none;
+}
+
+:where(html[data-theme="studio"]) .video-claims-dialog-head {
+  padding: var(--space-lg);
+  border-bottom-color: var(--border-strong);
+  background: var(--bg);
+}
+
+:where(html[data-theme="studio"]) .video-claims-dialog-content {
+  gap: 20px;
+  padding: var(--space-lg);
+}
+
+:where(html[data-theme="studio"]) .claim-relations-content .claim-card {
+  min-height: 0;
+  gap: var(--space-sm);
+  border-color: var(--border);
+  border-radius: var(--card-radius);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .claim-relations-content .claim-conclusion p { font-size: 16px; line-height: 1.8; }
+:where(html[data-theme="studio"]) .claim-relations-content { background: var(--bg); }
+:where(html[data-theme="studio"]) .claim-relations-mark,
+:where(html[data-theme="studio"]) .claim-relations-head .icon-button,
+:where(html[data-theme="studio"]) .claim-relation-tabs,
+:where(html[data-theme="studio"]) .claim-comparison-pager button,
+:where(html[data-theme="studio"]) .claim-relation-reason { border-radius: var(--card-radius); }
+:where(html[data-theme="studio"]) .claim-relations-mark { background: var(--surface-2); }
+:where(html[data-theme="studio"]) .claim-relation-tabs { padding: var(--space-2xs); background: transparent; }
+:where(html[data-theme="studio"]) .claim-relation-tab[aria-pressed="true"] { border-color: var(--border-strong); box-shadow: none; }
+:where(html[data-theme="studio"]) .claim-relation-reason { border-color: var(--border); background: var(--surface-2); }
+:where(html[data-theme="studio"]) .claim-comparison-dot { display: none; }
+
+:where(html[data-theme="studio"]) .source-group { border: 0; border-radius: 0; background: transparent; }
+:where(html[data-theme="studio"]) #sources-view .source-group-head { padding-inline: 0; border-bottom: 1px solid var(--border-strong); background: transparent; }
+:where(html[data-theme="studio"]) #sources-view .source-card-grid { padding: var(--space-md) 0 0; background: transparent; }
+:where(html[data-theme="studio"]) .source-group-summary h3 { font-family: var(--font-display); font-weight: 400; letter-spacing: 0; }
+:where(html[data-theme="studio"]) .progress-state,
+:where(html[data-theme="studio"]) .progress-stage-tag { border-radius: var(--btn-radius); }
+
+:where(html[data-theme="studio"]) .claim-relation-tab,
+:where(html[data-theme="studio"]) .claim-comparison-reason,
+:where(html[data-theme="studio"]) .claim-comparison-anchor,
+:where(html[data-theme="studio"]) .claim-comparison-list,
+:where(html[data-theme="studio"]) .source-performance,
+:where(html[data-theme="studio"]) .source-performance-chart {
+  border-radius: var(--card-radius);
+}
+
+:where(html[data-theme="studio"]) .knowledge-back-to-top {
+  border-color: var(--border-strong);
+  border-radius: var(--btn-radius);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+:where(html[data-theme="studio"]) .knowledge-back-to-top:hover {
+  border-color: var(--border-strong);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+@container claim-results (max-width: 959px) {
+  :where(html[data-theme="studio"]) #knowledge-results,
+:where(html[data-theme="studio"]) #detail-view #video-claims { --claim-columns: 2; }
+}
+
+@container claim-results (max-width: 620px) {
+  :where(html[data-theme="studio"]) #knowledge-results,
+:where(html[data-theme="studio"]) #detail-view #video-claims { --claim-columns: 1; }
+}
+
+@media (max-width: 1100px) {
+  :root[data-theme="studio"] { --studio-gutter: 24px; }
+  :where(html[data-theme="studio"]) .sidebar { flex-wrap: wrap; gap: var(--space-sm); padding-block: var(--space-md) var(--space-sm); }
+  :where(html[data-theme="studio"]) .brand { flex: 1 1 auto; }
+  :where(html[data-theme="studio"]) .nav-list { order: 3; flex: 1 0 100%; gap: var(--space-xs); margin: 0; overflow-x: auto; padding-bottom: var(--space-2xs); }
+  :where(html[data-theme="studio"]) .nav-item { flex: 0 0 auto; }
+  :where(html[data-theme="studio"]) .sidebar-footer { border: 0; padding: 0; }
+  :where(html[data-theme="studio"]) .sidebar-footer .nav-item { min-height: 44px; padding: var(--space-xs) var(--space-sm); font-size: 13px; }
+  :where(html[data-theme="studio"]) .sidebar-footer .nav-label { font-size: inherit; }
+  html[data-theme="studio"] { scroll-padding-top: 156px; }
+  :where(html[data-theme="studio"]) .knowledge-filter-top-row { flex-direction: column-reverse; gap: var(--space-sm); }
+  :where(html[data-theme="studio"]) #knowledge-query { flex: none; width: 100%; }
+}
+
+@media (max-width: 700px) {
+  :root[data-theme="studio"] { --studio-gutter: 20px; }
+  :where(html[data-theme="studio"]) .sidebar { gap: var(--space-sm); }
+  :where(html[data-theme="studio"]) .brand { grid-template-columns: 32px minmax(0, 1fr); gap: var(--space-xs); }
+  :where(html[data-theme="studio"]) .brand-mark { width: 32px; height: 32px; }
+  :where(html[data-theme="studio"]) .brand-mark img { width: 28px; height: 28px; }
+  :where(html[data-theme="studio"]) .brand strong { font-size: 18px; }
+  :where(html[data-theme="studio"]) .brand span { font-size: 10px; }
+  :where(html[data-theme="studio"]) .nav-list { gap: var(--space-2xs); }
+  :where(html[data-theme="studio"]) .nav-item { flex-direction: column; gap: var(--space-2xs); min-height: 52px; padding: var(--space-2xs) var(--space-xs); font-size: 12px; }
+  :where(html[data-theme="studio"]) .sidebar-footer .nav-item { flex-direction: row; }
+  :where(html[data-theme="studio"]) .nav-item:hover { padding-left: var(--space-xs); }
+  :where(html[data-theme="studio"]) .nav-icon { flex-basis: 16px; width: 16px; height: 16px; }
+  :where(html[data-theme="studio"]) .nav-icon svg { width: 16px; height: 16px; }
+  :where(html[data-theme="studio"]) .nav-item::after,
+:where(html[data-theme="studio"]) .nav-item.active::after { inset-inline: 8px; }
+  :where(html[data-theme="studio"]) .workspace { padding-block: var(--space-lg) 48px; }
+  :where(html[data-theme="studio"]) .topbar,
+:where(html[data-theme="studio"]) .workspace:has(> .view.active:not(#overview-view)) .topbar { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-sm); margin-bottom: 20px; padding-bottom: 20px; }
+  :where(html[data-theme="studio"]) .topbar > div:first-child,
+:where(html[data-theme="studio"]) .admin-panel { grid-column: auto; grid-row: auto; }
+  :where(html[data-theme="studio"]) .topbar h1,
+:where(html[data-theme="studio"]) .workspace:has(> .view.active:not(#overview-view)) .topbar h1 { font-size: 32px; }
+  :where(html[data-theme="studio"]) .admin-panel { gap: var(--space-2xs); max-width: 140px; font-size: 11px; }
+  :where(html[data-theme="studio"]) .admin-panel .primary-button { font-size: 12px; }
+  :where(html[data-theme="studio"]) #knowledge-query { font-size: 16px; }
+  :where(html[data-theme="studio"]) #knowledge-view .knowledge-filter-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-2xs); }
+  :where(html[data-theme="studio"]) #knowledge-view .knowledge-filter-row.primary { width: 100%; gap: var(--space-2xs); }
+  :where(html[data-theme="studio"]) #knowledge-view .knowledge-group-toggle { padding-inline: var(--space-sm); }
+  :where(html[data-theme="studio"]) #knowledge-view .knowledge-filter-row.secondary { gap: var(--space-xs); margin-top: var(--space-sm); padding-block: var(--space-sm); }
+  :where(html[data-theme="studio"]) #knowledge-view .stage-button { min-height: 44px; }
+  :where(html[data-theme="studio"]) #knowledge-layout { gap: var(--space-md); }
+  :where(html[data-theme="studio"]) #knowledge-view .knowledge-result-panel { padding: 0; }
+  :where(html[data-theme="studio"]) .claim-library-note { margin-bottom: 20px; }
+  :where(html[data-theme="studio"]) #knowledge-results,
+:where(html[data-theme="studio"]) #detail-view #video-claims { gap: 20px; }
+  :where(html[data-theme="studio"]) .claim-card,
+:where(html[data-theme="studio"]) #knowledge-results > .claim-card,
+:where(html[data-theme="studio"]) #detail-view #video-claims > .claim-card,
+:where(html[data-theme="studio"]) .video-claims-dialog-content .claim-card { min-height: 0; gap: var(--space-sm); padding: 20px; }
+  :where(html[data-theme="studio"]) .claim-card .claim-card-heading { flex-wrap: wrap; gap: var(--space-xs); }
+  :where(html[data-theme="studio"]) .claim-card .claim-card-heading h3 { flex: 1 1 140px; }
+  :where(html[data-theme="studio"]) .claim-card-badges { margin-top: 0; }
+  :where(html[data-theme="studio"]) .claim-card-actions .primary-button,
+:where(html[data-theme="studio"]) .claim-more > summary { min-height: 44px; }
+  :where(html[data-theme="studio"]) .claim-card-actions .claim-source-action { padding-inline: var(--space-xs); }
+  :where(html[data-theme="studio"]) .video-claims-dialog,
+:where(html[data-theme="studio"]) .claim-relations-dialog { width: calc(100% - 24px); max-height: calc(100dvh - 24px); }
+  :where(html[data-theme="studio"]) .video-claims-dialog-head,
+:where(html[data-theme="studio"]) .video-claims-dialog-content { padding: 20px; }
+  :where(html[data-theme="studio"]) .primary-button,
+:where(html[data-theme="studio"]) .primary-button.small,
+:where(html[data-theme="studio"]) .icon-button,
+:where(html[data-theme="studio"]) .filter-button { min-height: 44px; }
+  :where(html[data-theme="studio"]) input,
+:where(html[data-theme="studio"]) textarea,
+:where(html[data-theme="studio"]) select { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(html[data-theme="studio"]) *,
+:where(html[data-theme="studio"]) *::before,
+:where(html[data-theme="studio"]) *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  :where(html[data-theme="studio"]) button:active:not(:disabled),
+:where(html[data-theme="studio"]) a.primary-button:active { transform: none; }
+}
+
+:where(html[data-theme="studio"]) .nav-list .nav-item .nav-icon:has(img) {
+  background: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+:where(html[data-theme="studio"]) .nav-list .nav-icon img { visibility: hidden; }
+:where(html[data-theme="studio"]) [data-view="overview"] .nav-icon { mask-image: url("./nav/overview.svg"); }
+:where(html[data-theme="studio"]) [data-view="sources"] .nav-icon { mask-image: url("./nav/sources.svg"); }
+:where(html[data-theme="studio"]) [data-view="videos"] .nav-icon { mask-image: url("./nav/videos.svg"); }
+:where(html[data-theme="studio"]) [data-view="progress"] .nav-icon { mask-image: url("./nav/progress.svg"); }
+:where(html[data-theme="studio"]) [data-view="knowledge"] .nav-icon { mask-image: url("./nav/knowledge.svg"); }

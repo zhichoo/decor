@@ -1,0 +1,45 @@
+{
+  "fixture_notice": "Synthetic examples with intentional extraction mistakes; not renovation advice.",
+  "videos": [
+    {
+      "id": "demo-video-1",
+      "platform": "synthetic",
+      "creator": "合成示例作者甲",
+      "title": "合成示例：个人经历被扩大范围",
+      "source_url": "https://example.invalid/video/demo-1",
+      "transcript_text": "我家客厅没有吊顶，使用吸顶灯。这个例子只说我家的选择，不代表所有户型。",
+      "transcript_source": "synthetic"
+    },
+    {
+      "id": "demo-video-2",
+      "platform": "synthetic",
+      "creator": "合成示例作者乙",
+      "title": "合成示例：数字和作者态度被改变",
+      "source_url": "https://example.invalid/video/demo-2",
+      "transcript_text": "这块样品厚度是1.2毫米，我不推荐把这次体验当成统一选购标准。",
+      "transcript_source": "synthetic"
+    }
+  ],
+  "claims": [
+    {
+      "id": "demo-claim-1",
+      "video_id": "demo-video-1",
+      "object_name": "客厅照明",
+      "author_stance": "赞成",
+      "content_type": "选购建议",
+      "original_conclusion": "不吊顶的客厅都应该选择吸顶灯。",
+      "conditions": "不吊顶的客厅",
+      "source_quotes": ["我家客厅没有吊顶，使用吸顶灯。"]
+    },
+    {
+      "id": "demo-claim-2",
+      "video_id": "demo-video-2",
+      "object_name": "材料厚度",
+      "author_stance": "赞成",
+      "content_type": "选购建议",
+      "original_conclusion": "作者推荐所有人使用1.8毫米的材料。",
+      "source_quotes": ["这块样品厚度是1.2毫米，我不推荐把这次体验当成统一选购标准。"]
+    }
+  ],
+  "runs": []
+}

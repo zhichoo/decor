@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import advertising
+import claim_relations
+import guide_catalog
 from init_db import database_url
 
 VIDEO_FIELDS = ("id", "source_id", "platform", "creator", "title", "published_at", "status",
@@ -44,24 +46,17 @@ def public_url(value):
         return ""
 
 
-def progress_state(video):
-    decision = (video.get("ad_review") or {}).get("decision")
-    if decision == "advertising" or video["status"] == "claims_filtered":
-        return "已完成"
-    if decision in ("uncertain", "error"):
-        return "待确认"
-    if video["status"] == "transcript_failed" or video.get("last_error"):
-        return "失败"
-    if not video["source_url"]:
-        return "缺链接"
-    if video["claim_count"]:
-        return "已完成"
-    return "待观点" if video["has_transcript"] else "待文案"
-
-
-def make_snapshot(source_rows, video_rows, claim_rows, published_at=None):
-    active_videos = {row["id"]: row for row in video_rows if row.get("deleted_at") is None}
-    active_claims = [row for row in claim_rows if row.get("deleted_at") is None and row["video_id"] in active_videos]
+def make_snapshot(source_rows, video_rows, claim_rows, published_at=None, relation_rows=None, guides=None):
+    available_videos = {row["id"]: row for row in video_rows if row.get("purged_at") is None}
+    active_videos = {key: row for key, row in available_videos.items() if row.get("deleted_at") is None}
+    active_claims = [row for row in claim_rows if row.get("deleted_at") is None and row["video_id"] in available_videos]
+    claims_by_id = {row["id"]: row for row in active_claims}
+    relations = [{key: row[key] for key in ("claim_a_id", "claim_b_id", "kind", "reason")}
+                 for row in (relation_rows or []) if claim_relations.valid_relation(row, claims_by_id)]
+    relation_counts = {key: Counter() for key in claims_by_id}
+    for row in relations:
+        for key in (row["claim_a_id"], row["claim_b_id"]):
+            relation_counts[key][row["kind"]] += 1
     claim_counts = Counter(row["video_id"] for row in active_claims)
     videos = []
     for row in active_videos.values():
@@ -73,17 +68,17 @@ def make_snapshot(source_rows, video_rows, claim_rows, published_at=None):
                     claim_count=claim_counts[row["id"]], ad_review={"decision": review["decision"]} if review else {})
         if row.get("last_error"):
             item["last_error"] = "后台处理尚未完成；公开预览仅支持浏览。"
-        item["progress_state"] = progress_state(item)
         videos.append(item)
     # The input query provides PostgreSQL's timezone-aware publication order.
     claims = []
     for row in active_claims:
-        video = active_videos[row["video_id"]]
+        video = available_videos[row["video_id"]]
         item = {key: row.get(key) for key in CLAIM_FIELDS}
         for field in ("space_tags", "topic_tags", "original_reasons", "alternatives", "source_quotes"):
             item[field] = item[field] or []
         item.update(source_video_url=public_url(video.get("source_url")), video_title=video["title"],
                     creator=video["creator"], platform=video["platform"],
+                    relation_counts=dict(relation_counts[row["id"]]),
                     source_video_is_promotional=advertising.current_review(video).get("decision") == "advertising")
         claims.append(item)
     sources = []
@@ -91,7 +86,7 @@ def make_snapshot(source_rows, video_rows, claim_rows, published_at=None):
         related = [video for video in videos if video["source_id"] == row["id"]]
         item = {key: row.get(key) for key in SOURCE_FIELDS}
         item.update(profile_url=public_url(row.get("profile_url")), video_count=len(related),
-                    claim_count=sum(video["claim_count"] for video in related),
+                    claim_count=sum(available_videos[claim["video_id"]].get("source_id") == row["id"] for claim in active_claims),
                     pending_count=sum(not video["has_transcript"] for video in related))
         sources.append(item)
     groups = Counter((video["platform"], video["creator"]) for video in videos)
@@ -101,23 +96,33 @@ def make_snapshot(source_rows, video_rows, claim_rows, published_at=None):
         "total": len(claims), "stages": dict(Counter(c["process_stage"] for c in claims)),
         "stances": dict(Counter(c["stance"] for c in claims)),
         "author_stances": dict(Counter(c["author_stance"] or {"明确推荐": "赞成", "明确不推荐": "反对"}.get(c["stance"], "未明确") for c in claims)),
-        "content_types": dict(Counter(c["content_type"] or "旧版未分类" for c in claims)),
+        "content_types": dict(Counter(c["content_type"] or "未分类" for c in claims)),
         "tags": {tag: sum(tag in c["space_tags"] or tag in c["topic_tags"] or tag in (c["process_stage"] or "")
                           for c in claims) for tag in tags},
     }
-    progress = {key: 0 for key in ("全部", "缺链接", "待文案", "待观点", "已完成", "失败", "待确认")}
-    progress.update(Counter(video["progress_state"] for video in videos))
-    progress["全部"] = len(videos)
+    retained_sources = []
+    for key in sorted({claim["video_id"] for claim in active_claims} - active_videos.keys()):
+        row = available_videos[key]
+        item = {field: row.get(field) for field in VIDEO_FIELDS}
+        review = advertising.current_review(row)
+        item.update(source_url=public_url(row.get("source_url")), transcript_text=row.get("transcript_text") or "",
+                    source_read_only=True, ad_review={"decision": review["decision"]} if review else {})
+        retained_sources.append(item)
+    # Guides resolve against the same public card set as the library, so withheld cards never leak.
+    public_claims = {claim["id"]: claim for claim in claims}
+    guide_payloads = {guide["slug"]: guide_catalog.resolve(guide, public_claims)[0] for guide in guides or []}
     return {
+        "guides": guide_payloads,
         "format_version": 1, "published_at": published_at or datetime.now(timezone.utc).isoformat(),
-        "sources": sources, "videos": videos, "claims": claims,
+        "sources": sources, "videos": videos, "claims": claims, "retained_sources": retained_sources,
+        "claim_relations": relations,
         "stats": {"source_count": len(sources), "video_count": len(videos), "claim_count": len(claims),
                   "transcript_count": sum(video["has_transcript"] for video in videos)},
         "video_facets": {"total": len(videos),
                          "platforms": [{"platform": key, "video_count": value} for key, value in sorted(platforms.items())],
                          "creators": [{"platform": key[0], "creator": key[1], "video_count": value}
                                       for key, value in sorted(groups.items()) if key[1]]},
-        "knowledge_facets": knowledge_facets, "progress_counts": progress,
+        "knowledge_facets": knowledge_facets,
     }
 
 
@@ -127,13 +132,17 @@ def read_snapshot():
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM sources ORDER BY created_at DESC, id")
             sources = cursor.fetchall()
-            cursor.execute("SELECT * FROM videos WHERE deleted_at IS NULL "
+            cursor.execute("SELECT * FROM videos v WHERE purged_at IS NULL AND (deleted_at IS NULL "
+                           "OR EXISTS (SELECT 1 FROM claims c WHERE c.video_id=v.id AND c.deleted_at IS NULL)) "
                            "ORDER BY published_at_ts DESC NULLS LAST, created_at DESC, id DESC")
             videos = cursor.fetchall()
             cursor.execute("SELECT c.* FROM claims c JOIN videos v ON v.id=c.video_id "
-                           "WHERE c.deleted_at IS NULL AND v.deleted_at IS NULL ORDER BY c.created_at DESC, c.id DESC")
+                           "WHERE c.deleted_at IS NULL AND v.purged_at IS NULL ORDER BY c.created_at DESC, c.id DESC")
             claims = cursor.fetchall()
-    return make_snapshot(sources, videos, claims)
+            cursor.execute("SELECT * FROM claim_relations WHERE kind <> 'distinct'")
+            relations = cursor.fetchall()
+    guides = [guide_catalog.load_guide(item["slug"]) for item in guide_catalog.list_guides()]
+    return make_snapshot(sources, videos, claims, relation_rows=relations, guides=guides)
 
 
 class PublicHTML(HTMLParser):
@@ -203,7 +212,7 @@ def build_site(snapshot, output):
         staging.mkdir()
         (staging / "data").mkdir()
         (staging / "data" / f"library-{version}.json").write_text(payload, encoding="utf-8")
-        for name in ("app.js", "styles.css", "public-client.js", "public.css"):
+        for name in ("app.js", "styles.css", "public-client.js", "public.css", "guides.js", "guides.css"):
             shutil.copyfile(ROOT / "web" / name, staging / name)
         shutil.copytree(ROOT / "web/assets", staging / "assets")
         parser = PublicHTML(snapshot["published_at"])
@@ -215,6 +224,7 @@ def build_site(snapshot, output):
         document = document.replace("</head>", '<link rel="stylesheet" href="./public.css?v=' + version + '" />\n  </head>')
         import re
         document = re.sub(r'(?<=styles\.css\?v=)[^" ]+', version, document)
+        document = re.sub(r'(guides\.(?:css|js)\?v=)[^" ]+', lambda m: m.group(1) + version, document)
         document = re.sub(r'<script src="\./app\.js[^\"]*"></script>',
                           f'<script src="./public-client.js?v={version}" data-snapshot="./data/library-{version}.json"></script>\n'
                           f'    <script src="./app.js?v={version}"></script>', document)

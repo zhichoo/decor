@@ -7,7 +7,11 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="./assets/icons/favicon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20261029-claim-context" />
+    <link rel="stylesheet" href="./styles.css?v=20261110-back-to-top" />
+    <link rel="stylesheet" href="./assets/themes/controls.css?v=20261110-themes" />
+    <link rel="stylesheet" href="./guides.css?v=20261118-guide10" />
+    <script src="./assets/themes/config.js?v=20261110-themes"></script>
+    <script src="./assets/themes/loader.js?v=20261110-themes"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -35,7 +39,7 @@
             <span class="nav-icon" aria-hidden="true"><img src="./assets/icons/nav-videos.png" alt="" /></span>
             <span class="nav-label">视频列表</span>
           </button>
-          <button class="nav-item" data-view="progress" type="button">
+          <button class="nav-item" data-view="progress" type="button" data-admin-only>
             <span class="nav-icon" aria-hidden="true"><img src="./assets/icons/nav-progress.png" alt="" /></span>
             <span class="nav-label">处理进度</span>
           </button>
@@ -43,9 +47,13 @@
             <span class="nav-icon" aria-hidden="true"><img src="./assets/icons/nav-knowledge.png" alt="" /></span>
             <span class="nav-label">知识库</span>
           </button>
+          <button class="nav-item" data-view="guide" type="button" hidden>
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7h6M9 10.5h4"/></svg></span>
+            <span class="nav-label">装修指南</span>
+          </button>
           <button class="nav-item" data-view="deleted" type="button" data-admin-only>
-            <span class="nav-icon" aria-hidden="true"><img src="./assets/icons/nav-progress.png" alt="" /></span>
-            <span class="nav-label">已删除</span>
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg></span>
+            <span class="nav-label">回收站</span>
           </button>
         </nav>
         <div class="sidebar-footer" data-admin-only>
@@ -59,7 +67,6 @@
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">MVP Prototype</p>
             <h1 id="page-title">装修全流程知识地图</h1>
           </div>
           <div class="admin-panel" id="admin-panel" data-authenticated="false" hidden>
@@ -71,9 +78,14 @@
 
         <section class="view" id="settings-view" aria-labelledby="settings-heading">
           <div class="section-heading">
-            <div><h2 id="settings-heading">转写设置</h2><p>选择视频文案的获取方式，不影响后续的观点提取服务。</p></div>
+            <div><h2 id="settings-heading">转写设置</h2><p>仅影响后续转写，不改变已保存文案、进行中任务及观点提取。</p></div>
           </div>
           <div id="transcript-settings" aria-busy="false"></div>
+          <section class="appearance-settings" aria-labelledby="appearance-heading">
+            <h2 id="appearance-heading">界面主题</h2>
+            <div class="theme-options" data-theme-options role="group" aria-label="选择界面主题"></div>
+            <p class="form-message" data-theme-message role="status" aria-live="polite"></p>
+          </section>
         </section>
 
         <section class="view" id="overview-view" aria-labelledby="page-title">
@@ -106,7 +118,7 @@
         <section class="view" id="sources-view" aria-labelledby="page-title">
           <div class="section-heading">
             <div>
-              <p id="source-summary">按博主管理主页链接、采集状态和入库进度。每次默认采集最新 5 条，自动跳过置顶视频。</p>
+              <p id="source-summary">正在加载来源…</p>
             </div>
             <div class="queue-actions" data-admin-only>
               <button class="primary-button with-icon" id="open-ingest" type="button" aria-controls="ingest-panel" aria-expanded="false" data-admin-required disabled>
@@ -124,8 +136,8 @@
           <section class="ingest-panel" id="ingest-panel" hidden aria-labelledby="ingest-heading" data-admin-only>
             <div class="ingest-head">
               <div>
-                <h3 id="ingest-heading">添加视频来源</h3>
-                <p class="ingest-description">粘贴博主主页链接，保存来源并采集最近作品。已有来源将直接更新。</p>
+                <h3 id="ingest-heading">添加来源</h3>
+                <p class="ingest-description">已有来源会直接更新。</p>
               </div>
               <button class="icon-button quiet" id="close-ingest" type="button" aria-label="关闭添加面板" title="关闭">×</button>
             </div>
@@ -133,8 +145,7 @@
             <form id="ingest-form" class="ingest-form">
               <label class="ingest-url-field">
                 <span>博主主页链接 <span class="field-required" aria-hidden="true">*</span></span>
-                <input name="batch_profile_url" type="url" required placeholder="https://www.douyin.com/user/…" autocomplete="off" spellcheck="false" aria-describedby="ingest-url-help" />
-                <small id="ingest-url-help">填写博主个人主页地址，不是单条视频链接。</small>
+                <input name="batch_profile_url" type="url" required placeholder="https://www.douyin.com/user/…" autocomplete="off" spellcheck="false" />
               </label>
               <label>
                 <span>平台</span>
@@ -143,12 +154,12 @@
               <label>
                 <span>采集数量（不含置顶）</span>
                 <input name="batch_limit" type="number" min="1" max="50" step="1" value="5" required aria-describedby="ingest-limit-help" />
-                <small id="ingest-limit-help">最近 1–50 条，默认 5 条</small>
+                <small id="ingest-limit-help">1–50 条</small>
               </label>
 
               <div class="ingest-actions">
                 <div class="ingest-feedback">
-                  <p class="ingest-note">需管理员登录；抖音采集还需先登录抖音。</p>
+                  <p class="ingest-note">采集前需登录抖音。</p>
                   <p id="ingest-message" role="status" aria-live="polite"></p>
                 </div>
                 <div class="ingest-buttons">
@@ -204,42 +215,50 @@
             <article class="transcript-panel">
               <div class="detail-head">
                 <div>
-                  <p class="eyebrow" id="detail-platform">Douyin Source</p>
                   <h2 id="detail-heading">视频详情</h2>
+                  <div class="detail-identity">
+                    <span id="detail-platform">抖音</span>
+                    <span id="detail-creator">-</span>
+                    <time id="detail-published"></time>
+                  </div>
                 </div>
                 <a class="primary-button small with-icon" id="detail-link" href="#" target="_blank" rel="noreferrer">
                   <span class="button-icon" aria-hidden="true"><img src="./assets/icons/action-detail.png" alt="" /></span>
                   <span>查看原视频</span>
                 </a>
               </div>
-              <dl class="meta-list">
-                <div>
-                  <dt>博主</dt>
-                  <dd id="detail-creator">-</dd>
+              <div class="detail-summary">
+                <div id="detail-status" class="detail-status-badges" aria-label="文案与观点状态"></div>
+                <div class="detail-promotion-controls">
+                  <span id="promotion-current" class="video-state-badge">未识别</span>
+                  <details id="promotion-editor" class="promotion-editor" data-admin-only>
+                    <summary aria-label="修改推广标记" title="修改推广标记">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5L8 21H3v-5ZM14 5l5 5"/></svg>
+                    </summary>
+                    <form id="promotion-form" class="promotion-form">
+                      <label for="promotion-decision">推广标记</label>
+                      <select id="promotion-decision" aria-label="修改推广状态" disabled>
+                        <option value="auto">自动识别</option>
+                        <option value="not_ad">普通内容</option>
+                        <option value="uncertain">疑似推广</option>
+                        <option value="advertising">推广</option>
+                      </select>
+                      <button id="save-promotion" class="primary-button small" type="submit" data-admin-required data-admin-blocked="true" disabled>保存</button>
+                      <p id="promotion-message" class="form-message" role="status" aria-live="polite"></p>
+                    </form>
+                  </details>
                 </div>
-                <div>
-                  <dt>提取观点</dt>
-                  <dd id="detail-claim-count">0</dd>
-                </div>
-                <div>
-                  <dt>状态</dt>
-                  <dd id="detail-status">-</dd>
-                </div>
-              </dl>
-              <form id="promotion-form" class="promotion-form">
-                <label for="promotion-decision">推广状态</label>
-                <span id="promotion-current">未识别</span>
-                <select id="promotion-decision" aria-label="修改推广状态" disabled>
-                  <option value="auto">自动识别</option>
-                  <option value="not_ad">普通内容</option>
-                  <option value="uncertain">疑似推广</option>
-                  <option value="advertising">推广</option>
-                </select>
-                <button id="save-promotion" class="primary-button small" type="submit" data-admin-required data-admin-blocked="true" disabled>保存状态</button>
-                <p id="promotion-message" class="form-message" role="status" aria-live="polite"></p>
-              </form>
+              </div>
+              <details class="detail-source-info" id="detail-source-info" hidden>
+                <summary>视频信息</summary>
+                <div id="detail-source-content"></div>
+              </details>
+              <details class="progress-note detail-processing-note" id="detail-processing-note" hidden>
+                <summary><span class="progress-note-summary" id="detail-processing-summary"></span><span class="progress-note-toggle" aria-hidden="true">详情</span></summary>
+                <p id="detail-processing-reason"></p>
+              </details>
               <div class="detail-transcript-heading">
-                <h3>视频文案</h3>
+                <h3>视频文案 <span id="detail-transcript-count" class="detail-section-count"></span></h3>
                 <div class="transcript-actions">
                   <button class="primary-button small" id="fetch-transcript" type="button" data-admin-required data-admin-blocked="true" disabled>获取文案</button>
                   <button class="primary-button small" id="edit-transcript" type="button" data-admin-required data-admin-blocked="true" disabled>编辑文案</button>
@@ -253,7 +272,6 @@
                   <button class="primary-button small" id="save-transcript" type="submit" data-admin-required data-admin-blocked="true" disabled>保存文案</button>
                   <button class="primary-button small" id="cancel-transcript-edit" type="button">取消</button>
                 </div>
-                <p class="transcript-edit-hint">保存后可点击“提取观点”更新知识卡。</p>
               </form>
               <p class="form-message" id="transcript-edit-message" role="status" aria-live="polite"></p>
             </article>
@@ -261,8 +279,8 @@
             <section class="claim-panel">
               <div class="detail-claims-heading">
                 <div>
-                  <h2>提取观点</h2>
-                  <p class="claim-library-note">来源观点不等于事实核验或针对你家的建议；未说明条件不代表普遍适用。</p>
+                  <h2>提取观点 <span id="detail-claim-count" class="detail-section-count">0</span></h2>
+                  <p class="claim-library-note">作者观点未经事实核验；引句仅供对照，未注明条件不代表普遍适用。</p>
                 </div>
                 <div class="detail-extract-actions">
                   <button class="primary-button small red" id="detail-extract-video" type="button" data-admin-required data-admin-blocked="true" disabled>提取观点</button>
@@ -284,35 +302,40 @@
               <div id="knowledge-stage-list" class="knowledge-filter-row secondary" aria-label="分类选项"></div>
             </nav>
             <section class="knowledge-result-panel">
-              <p class="claim-library-note">这里记录作者的主张，不是系统推荐；未说明条件不代表普遍适用。</p>
+              <p class="claim-library-note">作者观点未经事实核验；引句仅供对照，未注明条件不代表普遍适用。</p>
               <div class="search-results" id="knowledge-results"></div>
             </section>
           </div>
         </section>
 
+        <section class="view" id="guide-view" aria-labelledby="page-title"></section>
+
         <section class="view" id="deleted-view" aria-labelledby="page-title">
-          <div class="section-heading">
-            <div>
-              <p>管理员用于查看和恢复软删除的视频与观点。</p>
+          <div class="section-heading deleted-toolbar">
+            <div class="deleted-tabs" role="tablist" aria-label="回收站分类">
+              <button class="filter-button active" id="deleted-videos-tab" type="button" role="tab" aria-selected="true" aria-controls="deleted-list" data-deleted-tab="videos">视频</button>
+              <button class="filter-button" id="deleted-claims-tab" type="button" role="tab" aria-selected="false" aria-controls="deleted-list" tabindex="-1" data-deleted-tab="claims">知识卡</button>
             </div>
             <button class="primary-button small" id="refresh-deleted" type="button">刷新</button>
           </div>
-          <div class="video-grid" id="deleted-list"></div>
+          <div class="video-grid" id="deleted-list" role="tabpanel" aria-labelledby="deleted-videos-tab" tabindex="0"></div>
         </section>
       </main>
     </div>
 
+    <button class="knowledge-back-to-top" id="knowledge-back-to-top" type="button" aria-label="返回顶部" title="返回顶部" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14M12 20V8m-6 6 6-6 6 6"/></svg>
+    </button>
+
     <div class="admin-login-modal" id="admin-login-modal" hidden>
       <div class="admin-login-backdrop" data-admin-login-close></div>
-      <section class="admin-login-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-login-title" aria-describedby="admin-login-desc">
+      <section class="admin-login-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
         <div class="admin-login-head">
           <div>
-            <p class="eyebrow">Admin Access</p>
             <h2 id="admin-login-title">管理员登录</h2>
           </div>
           <button class="icon-button quiet" id="admin-login-close" type="button" aria-label="关闭登录弹窗" title="关闭" data-admin-login-close>×</button>
         </div>
-        <p id="admin-login-desc">登录后可以更新来源、处理视频、编辑文案，以及删除和恢复视频与观点。</p>
         <form id="admin-login-form" class="admin-login-form">
           <label for="admin-login-password">管理员密码</label>
           <input id="admin-login-password" type="password" autocomplete="current-password" placeholder="输入密码" />
@@ -330,7 +353,7 @@
         <div>
           <h2 id="video-claims-dialog-title">视频观点</h2>
           <p id="video-claims-dialog-name"></p>
-          <p class="claim-library-note">作者态度并非系统评级，原文引句不代表事实核验。</p>
+          <p class="claim-library-note">作者观点未经事实核验；引句仅供对照，未注明条件不代表普遍适用。</p>
         </div>
         <form method="dialog">
           <button class="icon-button quiet" type="submit" aria-label="关闭观点浮窗" title="关闭" autofocus>×</button>
@@ -339,15 +362,52 @@
       <div class="video-claims-dialog-content" id="video-claims-dialog-content" aria-busy="false"></div>
     </dialog>
 
+    <dialog class="video-claims-dialog guide-claims-dialog" id="guide-claims-dialog" aria-labelledby="guide-claims-dialog-title">
+      <header class="video-claims-dialog-head">
+        <div>
+          <h2 id="guide-claims-dialog-title">知识卡原文</h2>
+          <p class="claim-library-note">作者观点未经事实核验；引句仅供对照，未注明条件不代表普遍适用。</p>
+        </div>
+        <form method="dialog">
+          <button class="icon-button quiet" type="submit" aria-label="关闭知识卡" title="关闭" autofocus>×</button>
+        </form>
+      </header>
+      <div class="video-claims-dialog-content" id="guide-claims-dialog-content"></div>
+    </dialog>
+
+    <dialog class="video-claims-dialog claim-relations-dialog" id="claim-relations-dialog" aria-labelledby="claim-relations-title">
+      <header class="video-claims-dialog-head claim-relations-head">
+        <div class="claim-relations-heading">
+          <span class="claim-relations-mark" id="claim-relations-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16m-4-4 4 4-4 4M4 17h16m-4-4 4 4-4 4"/></svg></span>
+          <h2 id="claim-relations-title">关联观点</h2>
+        </div>
+        <form method="dialog"><button class="icon-button quiet" type="submit" aria-label="关闭关联观点" title="关闭" autofocus><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></form>
+      </header>
+      <div id="claim-relations-content" class="claim-relations-content" aria-busy="false"></div>
+    </dialog>
+
+    <dialog class="video-claims-dialog video-exclusions-dialog" id="video-exclusions-dialog" aria-labelledby="video-exclusions-dialog-title" aria-describedby="video-exclusions-dialog-name video-exclusions-note" data-admin-only>
+      <header class="video-claims-dialog-head">
+        <div>
+          <h2 id="video-exclusions-dialog-title">过滤记录 <small id="video-exclusions-count"></small></h2>
+          <p id="video-exclusions-dialog-name"></p>
+          <p id="video-exclusions-note">按记录计数；字段省略不代表整卡丢弃。</p>
+        </div>
+        <form method="dialog">
+          <button class="icon-button quiet" type="submit" aria-label="关闭过滤记录" title="关闭" autofocus>×</button>
+        </form>
+      </header>
+      <div class="video-claims-dialog-content" id="video-exclusions-dialog-content" aria-busy="false"></div>
+    </dialog>
+
     <dialog class="video-delete-dialog" id="video-delete-dialog" aria-labelledby="video-delete-title" aria-describedby="video-delete-desc video-delete-name">
       <form method="dialog">
-        <p class="eyebrow">删除确认</p>
-        <h2 id="video-delete-title">确定删除这个视频？</h2>
+        <h2 id="video-delete-title">将视频移入回收站？</h2>
         <p class="video-delete-name" id="video-delete-name"></p>
-        <p id="video-delete-desc">视频将移入回收站，可在“已删除”页面恢复。你可以选择是否同时删除关联观点。</p>
+        <p id="video-delete-desc">可在回收站恢复。</p>
         <label class="video-delete-option" for="video-delete-claims">
           <input id="video-delete-claims" type="checkbox" checked />
-          <span>同时删除该视频已提取的观点<small>取消勾选后，观点仍保留在知识库中。</small></span>
+          <span>同时移入关联知识卡<small>取消勾选则保留知识卡。</small></span>
         </label>
         <div class="video-delete-actions">
           <button class="primary-button" type="submit" value="cancel" autofocus>取消</button>
@@ -356,6 +416,7 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20261029-claim-context"></script>
+    <script src="./guides.js?v=20261118-guide10"></script>
+    <script src="./app.js?v=20261118-admin-progress"></script>
   </body>
 </html>

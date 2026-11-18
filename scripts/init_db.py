@@ -10,7 +10,7 @@ import psycopg2
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "db" / "schema.sql"
-TABLES = ("sources", "videos", "extraction_runs", "claims")
+TABLES = ("sources", "videos", "extraction_runs", "claims", "claim_relations", "claim_relation_jobs")
 # Shared with the optional seed command. Serializes cooperating initializers/seeds.
 LOCK_ID = 0x4445434F52
 

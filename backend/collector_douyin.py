@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import datetime as dt
+import fcntl
 import json
 import os
 import re
@@ -18,6 +19,29 @@ VALID_LOGIN_COOKIE_NAMES = {
     "uid_tt",
     "uid_tt_ss",
 }
+
+
+class BrowserProfileBusy(RuntimeError):
+    pass
+
+
+class LockedBrowserContext:
+    def __init__(self, context, lock):
+        self.context = context
+        self.lock = lock
+
+    def __getattr__(self, name):
+        return getattr(self.context, name)
+
+    def release(self):
+        if not self.lock.closed:
+            self.lock.close()
+
+    def close(self):
+        try:
+            self.context.close()
+        finally:
+            self.release()
 
 
 def canonical_video_url(url):
@@ -42,7 +66,7 @@ def cookie_status(context):
     }
 
 
-def launch_context(playwright, user_data_dir, headless=False):
+def launch_context(playwright, user_data_dir, headless=True, lock_timeout=45):
     executable_path = os.environ.get("CHROME_PATH", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     launch_options = {
         "headless": headless,
@@ -51,7 +75,24 @@ def launch_context(playwright, user_data_dir, headless=False):
     }
     if Path(executable_path).exists():
         launch_options["executable_path"] = executable_path
-    return playwright.chromium.launch_persistent_context(user_data_dir, **launch_options)
+    profile = Path(user_data_dir).resolve()
+    profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock = os.fdopen(os.open(profile / ".decor-profile.lock", os.O_CREAT | os.O_RDWR, 0o600), "a")
+    deadline = time.monotonic() + lock_timeout
+    try:
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise BrowserProfileBusy("douyin_browser_busy: 浏览器正在采集、转写或登录，请稍后重试")
+                time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+        context = playwright.chromium.launch_persistent_context(str(profile), **launch_options)
+        return LockedBrowserContext(context, lock)
+    except BaseException:
+        lock.close()
+        raise
 
 
 def safe_text(value):
@@ -221,7 +262,14 @@ def main():
         return 2
 
     with sync_playwright() as p:
-        context = launch_context(p, args.user_data_dir, headless=args.mode == "status")
+        # Only an explicitly requested interactive login may show a window.
+        try:
+            context = launch_context(p, args.user_data_dir, headless=args.mode != "login",
+                                     lock_timeout=0 if args.mode == "status" else 45)
+        except BrowserProfileBusy:
+            print(json.dumps({"ok": args.mode == "status", "status": "busy", "busy": True,
+                              "error": "douyin_browser_busy", "message": "浏览器正忙，稍后重试"}, ensure_ascii=False))
+            return 0 if args.mode == "status" else 1
         if args.mode == "status":
             status = cookie_status(context)
             context.close()

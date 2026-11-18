@@ -120,7 +120,7 @@ class KnowledgeFacetsTests(unittest.TestCase):
             "stages": dict(Counter(card["stage"] for card in active)),
             "stances": dict(Counter(card["stance"] for card in active)),
             "author_stances": dict(Counter(self.server.LEGACY_AUTHOR_STANCES.get(card["stance"], "未明确") for card in active)),
-            "content_types": {"旧版未分类": len(active)} if active else {},
+            "content_types": {"未分类": len(active)} if active else {},
             "tags": {
                 tag: sum(tag in card["spaces"] or tag in card["topics"] or tag in card["stage"]
                          for card in active)

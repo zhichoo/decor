@@ -23,7 +23,7 @@ class DeepSeekTransportTests(unittest.TestCase):
         })
         env.start()
         self.addCleanup(env.stop)
-        for name, value in [('DEEPSEEK_MODEL', 'deepseek-v4-pro'), ('DEEPSEEK_BASE_URL', 'https://model.test'), ('DEEPSEEK_GROUP', '')]:
+        for name, value in [('LLM_PROVIDER', 'deepseek'), ('DEEPSEEK_MODEL', 'deepseek-v4-pro'), ('DEEPSEEK_BASE_URL', 'https://model.test'), ('DEEPSEEK_GROUP', '')]:
             p = patch.object(server, name, value)
             p.start()
             self.addCleanup(p.stop)
@@ -49,13 +49,13 @@ class DeepSeekTransportTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertTrue(all(not path.exists() for path in paths))
 
-    def test_temporary_http_failure_retries_once_and_succeeds(self):
+    def test_temporary_http_failure_is_not_automatically_retried(self):
         with patch.object(server, 'call_deepseek_with_curl', side_effect=[(None, 'deepseek_http_503: overloaded'), (self.body, None)]) as curl, patch.object(server.time, 'sleep') as sleep:
             body, error = server.call_deepseek('test prompt')
-        self.assertEqual(body, self.body)
-        self.assertIsNone(error)
-        self.assertEqual(curl.call_count, 2)
-        sleep.assert_called_once_with(2)
+        self.assertIsNone(body)
+        self.assertIn('deepseek_http_503', error)
+        self.assertEqual(curl.call_count, 1)
+        sleep.assert_not_called()
         self.assertEqual(curl.call_args.args[1]['thinking'], {'type': 'disabled'})
 
     def test_official_flash_uses_official_url_and_non_thinking_json(self):
@@ -82,7 +82,7 @@ class DeepSeekTransportTests(unittest.TestCase):
             body, error = server.call_deepseek('test prompt')
         self.assertIsNone(body)
         self.assertIn('deepseek_http_503', error)
-        self.assertEqual(request.call_count, 2)
+        self.assertEqual(request.call_count, 1)
         self.assertTrue(all(call.args[0] == 'https://api.deepseek.com/chat/completions'
                             for call in request.call_args_list))
 
@@ -106,28 +106,24 @@ class DeepSeekTransportTests(unittest.TestCase):
                 self.assertEqual(curl.call_count, 1)
                 sleep.assert_not_called()
 
-    def test_busy_retries_but_empty_keepalive_response_does_not(self):
-        for transient in ('deepseek_http_429: busy', 'deepseek_http_503: overloaded', 'deepseek_http_500: unavailable', None):
+    def test_busy_network_and_empty_responses_are_not_retried(self):
+        for transient in ('deepseek_http_429: busy', 'deepseek_http_503: overloaded', 'deepseek_http_500: unavailable',
+                          'curl_exit_6: Could not resolve host', 'curl_exit_7: Connection refused', None):
             with self.subTest(error=transient), patch.object(server, 'call_deepseek_with_curl', side_effect=[(' \n' if transient is None else None, transient), (self.body, None)]) as curl, patch.object(server.time, 'sleep'):
                 body, error = server.call_deepseek('test prompt')
-                if transient is not None:
-                    self.assertEqual(body, self.body)
-                    self.assertIsNone(error)
-                    self.assertEqual(curl.call_count, 2)
-                else:
-                    self.assertIsNone(body)
-                    self.assertEqual(error, 'deepseek_empty_response')
-                    self.assertEqual(curl.call_count, 1)
+                self.assertIsNone(body)
+                self.assertEqual(error, transient or 'deepseek_empty_response')
+                self.assertEqual(curl.call_count, 1)
 
-    def test_v1_fallback_is_retained_on_retry(self):
+    def test_wrong_endpoint_is_not_automatically_resubmitted_to_v1(self):
         with patch.object(server, 'call_deepseek_with_curl', side_effect=[(None, 'deepseek_http_404: missing'), (None, 'deepseek_http_503: busy'), (self.body, None)]) as curl, patch.object(server.time, 'sleep'):
             body, error = server.call_deepseek('test prompt')
-        self.assertIsNone(error)
-        self.assertEqual(body, self.body)
-        self.assertEqual([item.args[0] for item in curl.call_args_list], ['https://model.test/chat/completions', 'https://model.test/v1/chat/completions', 'https://model.test/v1/chat/completions'])
+        self.assertIn('deepseek_http_404', error)
+        self.assertIsNone(body)
+        self.assertEqual([item.args[0] for item in curl.call_args_list], ['https://model.test/chat/completions'])
 
-    def test_retry_can_be_disabled(self):
-        with patch.dict(os.environ, {'DEEPSEEK_MAX_RETRIES': '0'}), patch.object(server, 'call_deepseek_with_curl', return_value=(None, 'deepseek_http_503: overloaded')) as curl, patch.object(server.time, 'sleep') as sleep:
+    def test_legacy_retry_setting_cannot_enable_automatic_retries(self):
+        with patch.dict(os.environ, {'DEEPSEEK_MAX_RETRIES': '2'}), patch.object(server, 'call_deepseek_with_curl', return_value=(None, 'deepseek_http_503: overloaded')) as curl, patch.object(server.time, 'sleep') as sleep:
             _, error = server.call_deepseek('test prompt')
         self.assertIn('deepseek_http_503', error)
         self.assertEqual(curl.call_count, 1)

@@ -13,9 +13,16 @@ spec.loader.exec_module(server)
 
 
 class ClaimQualityTests(unittest.TestCase):
+    def setUp(self):
+        provider = patch.object(server, "LLM_PROVIDER", "deepseek")
+        provider.start()
+        self.addCleanup(provider.stop)
+
     def claim(self, conclusion, quote, **fields):
-        return dict(object_name="厨房碗篮", stance="价格建议", original_conclusion=conclusion,
-                    original_reasons=[], source_quotes=[quote], **fields)
+        values = dict(object_name="厨房碗篮", stance="价格建议", original_conclusion=conclusion,
+                      original_reasons=[], source_quotes=[quote])
+        values.update(fields)
+        return values
 
     def check(self, claim, source):
         return server.sanitize_claims([claim], transcript_text=source, require_evidence=True)
@@ -39,6 +46,23 @@ class ClaimQualityTests(unittest.TestCase):
         self.assertEqual(kept, [])
         self.assertEqual(dropped[0]["reason"], "unsupported_source_evidence")
 
+    def test_number_from_another_topic_cannot_repair_ambiguous_asr(self):
+        quote = "防水刷两遍，高度刷三的公分高。"
+        source = quote + "吊顶副龙骨间距30公分。"
+        claim = self.claim("防水应刷两遍，高度30公分。", quote)
+        kept, dropped = self.check(claim, source)
+        self.assertEqual(kept, [])
+        self.assertEqual(dropped[0]["reason"], "unsupported_numeric_detail")
+
+    def test_all_card_quotes_can_jointly_support_numeric_details(self):
+        quote = "主龙骨间距六十公分。"
+        other = "副龙骨间距三十公分。"
+        claim = self.claim("吊顶主龙骨间距60公分，副龙骨间距30公分。", quote)
+        claim["source_quotes"].append(other)
+        kept, dropped = self.check(claim, quote + other)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(dropped, [])
+
     def test_clear_brand_advice_does_not_require_numeric_parameters(self):
         source = "热水器推荐海尔和美的，这是作者明确给出的选购建议。"
         claim = dict(object_name="热水器品牌", stance="明确推荐", original_conclusion="可考虑海尔和美的。",
@@ -46,6 +70,10 @@ class ClaimQualityTests(unittest.TestCase):
         kept, dropped = self.check(claim, source)
         self.assertEqual(len(kept), 1)
         self.assertEqual(dropped, [])
+        source = "电线选金杯和远东，都是达标品牌。"
+        claim = self.claim("电线可选用金杯或远东等达标品牌。", source, object_name="电线品牌选择")
+        kept, dropped = self.check(claim, source)
+        self.assertEqual(len(kept), 1, dropped)
 
     def test_multiple_empty_speech_markers_do_not_become_a_card(self):
         source = "我跟你说家人们，厨房这套碗篮不到四百块。"
@@ -66,6 +94,43 @@ class ClaimQualityTests(unittest.TestCase):
         kept, dropped = self.check(claim, source)
         self.assertEqual(kept, [])
         self.assertEqual(dropped[0]["reason"], "colloquial_card_text")
+
+    def test_effect_only_and_generic_purchase_cards_are_rejected(self):
+        cases = [
+            ("窗户自动清洁", "窗户不用自己动手擦。"),
+            ("即热饮水", "热水不用烧，随时可以喝。"),
+            ("花洒选购", "花洒要买品牌。"),
+            ("热水器", "节能又美观。"),
+        ]
+        for object_name, conclusion in cases:
+            source = "这是作者在视频里对产品和装修体验的完整说明。"
+            claim = self.claim(conclusion, source, object_name=object_name)
+            with self.subTest(conclusion=conclusion):
+                kept, dropped = self.check(claim, source)
+                self.assertEqual(kept, [])
+                self.assertEqual(dropped[0]["reason"], "no_actionable_information")
+
+    def test_specific_short_or_reasoned_cards_are_preserved(self):
+        cases = [
+            ("瓷砖留缝", "瓷砖留缝留2毫米。"),
+            ("洗菜盆", "买单槽，不买双槽。"),
+            ("非电工", "非电工不得接线。"),
+        ]
+        for object_name, conclusion in cases:
+            source = conclusion
+            claim = self.claim(conclusion, source, object_name=object_name)
+            with self.subTest(conclusion=conclusion):
+                kept, dropped = self.check(claim, source)
+                self.assertEqual(len(kept), 1, dropped)
+        source = "窗户需要每季度清理滑轨，避免积灰。"
+        claim = self.claim("窗户不用自己动手擦，但需要每季度清理滑轨。", source, object_name="窗户")
+        kept, dropped = self.check(claim, source)
+        self.assertEqual(len(kept), 1, dropped)
+        source = "还要检查好这个木门两侧的缝隙它是否均匀，均匀了才好看。"
+        claim = self.claim("木门两侧的缝隙要均匀，均匀才好看。", source, object_name="木门两侧的缝隙")
+        claim["original_reasons"] = []
+        kept, dropped = self.check(claim, source)
+        self.assertEqual(len(kept), 1, dropped)
 
     def test_chinese_numerals_do_not_mix_large_place_values(self):
         self.assertIn(Decimal("120000000"), server.numeric_evidence_values("一亿二千万"))

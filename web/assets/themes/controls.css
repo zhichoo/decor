@@ -1,0 +1,37 @@
+.appearance-settings {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.appearance-settings h2 {
+  margin: 0 0 16px;
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.theme-options .primary-button {
+  min-height: 44px;
+}
+
+.theme-options .primary-button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.theme-options .primary-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+[data-theme-message]:empty { display: none; }

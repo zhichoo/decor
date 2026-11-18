@@ -31,7 +31,11 @@ ssh -L 4189:127.0.0.1:4189 user@your-server
 | --- | --- |
 | `ADMIN_PASSWORD` | 至少 16 字符；脚本默认生成 48 位随机十六进制密码 |
 | `POSTGRES_PASSWORD` | 初始化数据库密码；默认随机生成；自定义时限用 URL 安全字符 |
-| `DEEPSEEK_API_KEY` | 自己的 DeepSeek 官方 Key；为空时不能 AI 提取 |
+| `LLM_PROVIDER` | `deepseek`（默认）或 `command_code`，只调用选中渠道，不自动回退 |
+| `COMMAND_CODE_API_KEY` | Command Code 订阅密钥，需包含 Provider API 权限 |
+| `COMMAND_CODE_BASE_URL` | 默认 `https://api.commandcode.ai/provider/v1` |
+| `COMMAND_CODE_MODEL` | 默认 `deepseek/deepseek-v4.1-flash-fast` |
+| `DEEPSEEK_API_KEY` | 选择 `deepseek` 时使用自己的官方 Key |
 | `DEEPSEEK_BASE_URL` | 默认 `https://api.deepseek.com`，不自动回退中转 |
 | `DEEPSEEK_MODEL` | 默认 `deepseek-flash`，需要是接口实际支持的模型 |
 | `DECOR_PORT` | 管理服务宿主机端口，默认 4189 |

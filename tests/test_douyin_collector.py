@@ -1,8 +1,14 @@
 import importlib.util
+import io
 import json
+import subprocess
+import sys
+import tempfile
+from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 
 spec = importlib.util.spec_from_file_location(
@@ -15,6 +21,97 @@ spec.loader.exec_module(collector)
 class DouyinCollectorTests(unittest.TestCase):
     def aweme(self, index, **extra):
         return {"aweme_id": str(7600000000000000000 + index), "desc": f"Video {index}", **extra}
+
+    def run_mode(self, mode, *, available=True):
+        playwright = MagicMock()
+        context = MagicMock()
+        context.new_page.return_value.locator.return_value.inner_text.return_value = "Creator"
+        context.new_page.return_value.locator.return_value.count.return_value = 0
+        api = SimpleNamespace(sync_playwright=Mock(return_value=playwright))
+        output = io.StringIO()
+        videos = collector.recursive_find_video_objects(self.aweme(1)) if available else []
+        with patch.dict("sys.modules", {"playwright.sync_api": api}), \
+             patch("sys.argv", ["collector", "--mode", mode]), \
+             patch.object(collector, "launch_context", return_value=context) as launch, \
+             patch.object(collector, "cookie_status", return_value={"logged_in": available}), \
+             patch.object(collector, "collect_render_data_videos", return_value=videos), \
+             redirect_stdout(output):
+            result = collector.main()
+        return result, json.loads(output.getvalue()), launch, context
+
+    def test_collection_and_status_never_show_a_browser_window(self):
+        for mode in ("collect", "status"):
+            with self.subTest(mode=mode):
+                result, payload, launch, context = self.run_mode(mode)
+                self.assertEqual(result, 0)
+                self.assertTrue(payload["ok"])
+                self.assertTrue(launch.call_args.kwargs["headless"])
+                launch.assert_called_once()
+                context.close.assert_called_once()
+
+    def test_missing_login_does_not_fall_back_to_a_visible_window(self):
+        result, payload, launch, context = self.run_mode("collect", available=False)
+        self.assertEqual(result, 1)
+        self.assertEqual(payload["error"], "douyin_profile_data_unavailable")
+        self.assertTrue(launch.call_args.kwargs["headless"])
+        launch.assert_called_once()
+        context.close.assert_called_once()
+
+    def test_explicit_login_can_show_its_interactive_window(self):
+        result, payload, launch, context = self.run_mode("login")
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["logged_in"])
+        self.assertFalse(launch.call_args.kwargs["headless"])
+        context.close.assert_called_once()
+
+    def test_browser_launcher_defaults_to_headless(self):
+        playwright = MagicMock()
+        with tempfile.TemporaryDirectory() as profile:
+            context = collector.launch_context(playwright, profile)
+            context.close()
+        launch = playwright.chromium.launch_persistent_context
+        launch.assert_called_once()
+        self.assertTrue(launch.call_args.kwargs["headless"])
+
+    def test_profile_lock_blocks_other_process_and_releases_on_close_or_launch_failure(self):
+        code = """import fcntl, pathlib, sys
+with open(pathlib.Path(sys.argv[1]) / '.decor-profile.lock', 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    print('locked', flush=True)
+    sys.stdin.readline()
+"""
+        with tempfile.TemporaryDirectory() as profile:
+            child = subprocess.Popen([sys.executable, "-c", code, profile], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "locked")
+                playwright = MagicMock()
+                with self.assertRaises(collector.BrowserProfileBusy):
+                    collector.launch_context(playwright, profile, lock_timeout=0)
+                playwright.chromium.launch_persistent_context.assert_not_called()
+            finally:
+                child.communicate("release\n", timeout=5)
+            context = collector.launch_context(playwright, profile, lock_timeout=0)
+            with self.assertRaises(collector.BrowserProfileBusy):
+                collector.launch_context(playwright, profile, lock_timeout=0)
+            context.close()
+            playwright.chromium.launch_persistent_context.side_effect = RuntimeError("launch failed")
+            with self.assertRaisesRegex(RuntimeError, "launch failed"):
+                collector.launch_context(playwright, profile, lock_timeout=0)
+            playwright.chromium.launch_persistent_context.side_effect = None
+            collector.launch_context(playwright, profile, lock_timeout=0).close()
+
+    def test_busy_status_does_not_claim_the_user_is_logged_out(self):
+        api = SimpleNamespace(sync_playwright=MagicMock())
+        output = io.StringIO()
+        with patch.dict("sys.modules", {"playwright.sync_api": api}), \
+             patch("sys.argv", ["collector", "--mode", "status"]), \
+             patch.object(collector, "launch_context", side_effect=collector.BrowserProfileBusy), \
+             redirect_stdout(output):
+            self.assertEqual(collector.main(), 0)
+        payload = json.loads(output.getvalue())
+        self.assertTrue(payload["busy"])
+        self.assertNotIn("logged_in", payload)
 
     def test_pin_flags_are_not_interpreted_by_python_truthiness(self):
         for key in ("is_top", "isTop", "is_pinned", "isPinned"):

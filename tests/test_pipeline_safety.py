@@ -11,6 +11,7 @@ import urllib.request
 from unittest.mock import patch
 
 import psycopg2
+from claim_fixtures import wire_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -87,16 +88,41 @@ class PipelineSafetyTests(unittest.TestCase):
     def active(self):
         return [row for row in self.claims() if row["deleted_at"] is None]
 
-    def result(self, claims, reason="none"):
-        return json.dumps({"choices": [{"message": {"content": json.dumps({
-            "claims": claims, "filter_reason": reason, "filter_message": ""
-        })}}]})
+    def result(self, claims, reason="none", transcript=None):
+        claims = [{"claim_id": f"c{index}", "source_scope": "general", "scope_quote": "",
+                   "promotion_relation": "independent", "author_stance": "赞成", "content_type": "验收要求",
+                   **claim} for index, claim in enumerate(claims, 1)]
+        for claim in claims:
+            quotes = claim.get("source_quotes") or []
+            claim.setdefault("field_evidence", {name: list(range(len(quotes)))
+                for name in self.server.claim_contract.field_values(claim)})
+            for issue in claim.get("review_issues") or []:
+                issue.setdefault("blocked_terms", [])
+        wire_claims = []
+        for claim in claims:
+            wire = {key: value for key, value in claim.items() if key not in (
+                "claim_id", "source_quotes", "field_evidence", "original_conclusion", "original_reasons",
+                "conditions", "price_info", "alternatives")}
+            def pair(text):
+                return {"text": text, "quote": (claim.get("source_quotes") or [""])[0]}
+            wire.update(statement=pair(claim.get("original_conclusion", "")),
+                        reasons=[pair(text) for text in claim.get("original_reasons", [])],
+                        alternatives=[pair(text) for text in claim.get("alternatives", [])],
+                        condition=pair(claim["conditions"]) if claim.get("conditions") not in (None, "", "未提及") else None,
+                        price=pair(claim["price_info"]) if claim.get("price_info") not in (None, "", "未提及") else None)
+            wire_claims.append(wire)
+        payload = {
+            "extraction_contract": "v12", "promotion_context": {"has_promotion": False, "subjects": []},
+            "claims": wire_claims, "filter_reason": reason, "filter_message": ""
+        }
+        return json.dumps({"choices": [{"message": {"content": json.dumps(
+            wire_payload(payload, self.old_text if transcript is None else transcript, self.server.claim_wire))}}]})
 
     def claim(self, conclusion, quote=None):
         if quote is None:
             quote = "装修验收时检查每个插座的接线是否安全"
         return {"object_name": "插座", "original_conclusion": conclusion,
-                "original_reasons": ["验收时检查接线是否牢固"], "process_stage": "待人工分类",
+                "original_reasons": ["验收时检查接线是否安全"], "process_stage": "待人工分类",
                 "source_quotes": [quote]}
 
     def extract_with(self, response, error=None):
@@ -197,7 +223,7 @@ class PipelineSafetyTests(unittest.TestCase):
 
         with patch.object(self.server, "new_id", side_effect=fail_second):
             with self.assertRaises(psycopg2.errors.UniqueViolation):
-                self.extract_with(self.result([self.claim("新观点一"), self.claim("新观点二")]))
+                self.extract_with(self.result([self.claim("验收时检查插座接线"), self.claim("检查每个插座的接线是否安全")]))
         self.assertEqual([row["id"] for row in self.claims()], ["old"])
         self.assertEqual(self.video()["status"], "claims_extracted")
         with self.server.connect() as conn:
@@ -212,7 +238,7 @@ class PipelineSafetyTests(unittest.TestCase):
             self.assertEqual([row["id"] for row in self.active()], ["old"])
             self.assertEqual(self.video()["status"], "claims_extracted")
 
-    def test_explicit_filter_and_empty_text_clear_active_cards(self):
+    def test_explicit_filter_clears_cards_but_empty_input_preserves_them(self):
         result = self.extract_with(self.result([], "promotion_only"))
         self.assertEqual(result["status"], "filtered")
         self.assertEqual(self.active(), [])
@@ -223,21 +249,31 @@ class PipelineSafetyTests(unittest.TestCase):
             self.assertEqual(summary["失败"], 0)
             conn.execute("UPDATE claims SET deleted_at = NULL WHERE id = 'old'")
             conn.execute("UPDATE videos SET transcript_text = '', transcript_length = 0 WHERE id = %s", (self.video_id,))
-            result = self.server.extract_claims_for_video(conn, self.server.row_to_video(self.video()))
-        self.assertEqual(result["status"], "filtered")
-        self.assertEqual(self.active(), [])
-        self.assertEqual(self.video()["status"], "claims_filtered")
+            with self.assertRaisesRegex(ValueError, "insufficient_transcript_evidence"):
+                self.server.extract_claims_for_video(conn, self.server.row_to_video(self.video()))
+        self.assertEqual([row["id"] for row in self.active()], ["old"])
 
-    def test_retry_short_transcript_filters_without_model_call(self):
+    def test_retry_insufficient_transcript_preserves_cards_without_model_call(self):
         with patch.object(self.server, "fetch_transcript_from_transcriptgenerate", return_value={
             "transcript_text": "太短", "task_id": "mock-task"
         }), patch.object(self.server, "call_deepseek") as model:
-            result = self.server.retry_video_from_transcript(self.video_id)
-        self.assertEqual(result["status"], "filtered")
-        self.assertEqual(self.video()["status"], "claims_filtered")
+            with self.assertRaisesRegex(ValueError, "insufficient_transcript_evidence"):
+                self.server.retry_video_from_transcript(self.video_id)
         self.assertEqual(self.video()["transcript_text"], "太短")
-        self.assertEqual(self.active(), [])
+        self.assertEqual([row["id"] for row in self.active()], ["old"])
         model.assert_not_called()
+
+    def test_short_clear_transcript_can_extract_or_fail_without_early_deletion(self):
+        text = "装修验收时检查每个插座的接线是否安全。"
+        with self.server.connect() as conn:
+            conn.execute("UPDATE videos SET transcript_text=%s, transcript_length=%s WHERE id=%s",
+                         (text, len(text), self.video_id))
+        result = self.extract_with(self.result([self.claim("装修验收检查插座接线是否安全。")], transcript=text))
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(self.active()), 1)
+        active_id = self.active()[0]["id"]
+        self.extract_with(None, "model_unavailable")
+        self.assertEqual([row["id"] for row in self.active()], [active_id])
 
     def test_retry_model_failure_retains_cards_after_saving_new_transcript(self):
         new_text = "重试新文案：" + "水电验收需要检查接线。" * 12
@@ -277,23 +313,22 @@ class PipelineSafetyTests(unittest.TestCase):
         ]
         for expected_count, (claim, reason) in enumerate(cases, start=1):
             with self.subTest(reason=reason):
-                with self.assertRaisesRegex(ValueError, "quality_check_failed"):
+                with self.assertRaisesRegex(ValueError, "quality_check_failed|invalid_evidence_span"):
                     self.extract_with(self.result([claim]))
                 self.assertEqual([row["id"] for row in self.active()], ["old"])
                 self.assertEqual(self.video()["status"], "claims_extracted")
                 with self.server.connect() as conn:
                     count = conn.execute(
-                        "SELECT COUNT(*) AS count FROM extraction_runs WHERE status = 'quality_check_failed'"
+                        "SELECT COUNT(*) AS count FROM extraction_runs WHERE status IN ('quality_check_failed', 'parse_failed')"
                     ).fetchone()["count"]
                 self.assertEqual(count, expected_count)
 
     def test_partial_quality_success_replaces_only_supported_claim(self):
-        bad_claim = self.claim("无来源引用")
-        bad_claim.pop("source_quotes")
+        bad_claim = self.claim("")
         result = self.extract_with(self.result([bad_claim, self.claim("验收时检查插座接线")]))
         self.assertEqual(result["status"], "completed")
         self.assertEqual(len(result["claims"]), 1)
-        self.assertEqual([item["reason"] for item in result["dropped_claims"]], ["missing_source_evidence"])
+        self.assertEqual([item["reason"] for item in result["dropped_claims"]], ["empty_conclusion"])
         self.assertEqual([row["original_conclusion"] for row in self.active()], ["验收时检查插座接线"])
         self.assertEqual(self.video()["status"], "claims_extracted")
 
@@ -410,13 +445,13 @@ class PipelineSafetyTests(unittest.TestCase):
         with patch.object(self.server, "fetch_transcript_from_transcriptgenerate", return_value={
             "transcript_text": new_text, "task_id": "mock-task"
         }), patch.object(self.server, "call_deepseek", return_value=(self.result([
-            self.claim("新观点", "水电完成后检查所有插座的接线")
-        ]), None)):
+            self.claim("水电完成后检查插座的接线", "水电完成后检查所有插座的接线")
+        ], transcript=new_text), None)):
             result = self.server.retry_video_from_transcript(self.video_id)
         self.assertEqual(result["status"], "completed")
         self.assertEqual(self.video()["transcript_text"], new_text)
         self.assertEqual(self.video()["status"], "claims_extracted")
-        self.assertEqual([row["original_conclusion"] for row in self.active()], ["新观点"])
+        self.assertEqual([row["original_conclusion"] for row in self.active()], ["水电完成后检查插座的接线"])
         self.assertIsNotNone(next(row for row in self.claims() if row["id"] == "old")["deleted_at"])
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add nullable task ledger and advertising review columns; existing business values are never rewritten."""
+"""Add nullable task, advertising and purge-marker columns without rewriting existing rows."""
 import sys
 import psycopg2
 from init_db import database_url
@@ -15,6 +15,7 @@ def migrate(dsn=None):
             cur.execute("ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS transcript_job jsonb")
             cur.execute("ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS ad_review jsonb")
             cur.execute("ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS ad_review_override jsonb")
+            cur.execute("ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS purged_at bigint")
 
 
 if __name__ == '__main__':

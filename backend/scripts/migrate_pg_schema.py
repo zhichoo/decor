@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import server  # noqa: E402
+import claim_relations  # noqa: E402
 
 
 JSONB_COLUMNS = {
@@ -151,7 +152,14 @@ def main():
             execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS author_stance text")
             execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS content_type text")
             execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS source_quotes jsonb")
+            execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS field_evidence jsonb")
+            execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS source_scope text")
+            execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS scope_quote text")
+            execute(cur, "ALTER TABLE claims ADD COLUMN IF NOT EXISTS evidence_contract text")
+            execute(cur, "ALTER TABLE extraction_runs ADD COLUMN IF NOT EXISTS review_data jsonb")
             add_soft_delete_columns(cur)
+            execute(cur, "ALTER TABLE videos ADD COLUMN IF NOT EXISTS purged_at bigint")
+            claim_relations.migrate_schema(cur)
 
             execute(cur, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
             execute(cur, "CREATE INDEX IF NOT EXISTS idx_videos_source_id ON videos(source_id)")

@@ -184,13 +184,95 @@ class AdminPermissionTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertTrue(body["read_only"])
             self.assertFalse(body["authenticated"])
-            for path in ("/api/admin/deleted", "/api/settings/transcription", "/api/queue/status",
+            for path in ("/api/admin/source-performance", "/api/admin/deleted", "/api/settings/transcription", "/api/queue/status",
+                         "/api/progress-summary", "/api/progress-videos",
+                         "/api/admin/deleted/videos/vid-1",
+                         "/api/admin/videos/vid-1/exclusions",
                          "/api/douyin/login-status", "/api/queue/next", "/api/future-private-read",
                          "/api/videos/vid-1?include_runs=1"):
                 status, _, _ = self.request(path, method="GET", cookie=server.make_admin_session_value())
                 self.assertEqual(status, 403, path)
             connect.assert_not_called()
             browser.assert_not_called()
+
+    def test_source_performance_requires_session_before_database_and_never_calls_model(self):
+        with patch.object(server, "connect") as connect, patch.object(server, "call_deepseek") as model:
+            for path in ("/api/admin/source-performance", "/api/admin/videos/vid-1/exclusions",
+                         "/api/admin/deleted", "/api/admin/deleted/videos/vid-1",
+                         "/api/progress-summary", "/api/progress-videos"):
+                for cookie in (None, "invalid", server.make_admin_session_value() + "tampered"):
+                    status, _, headers = self.request(path, method="GET", cookie=cookie)
+                    self.assertEqual(status, 401)
+                    self.assertIn("no-store", headers["Cache-Control"])
+            connect.assert_not_called()
+            model.assert_not_called()
+
+    def test_busy_login_check_preserves_last_known_login_state(self):
+        previous = dict(server.DOUYIN_LOGIN_JOB)
+        try:
+            server.DOUYIN_LOGIN_JOB.update(running=False, status="logged_in", logged_in=True)
+            with patch.object(server, "get_douyin_login_status", return_value={"ok": True, "busy": True}), \
+                 patch.object(server, "connect") as database:
+                status, payload, _ = self.request("/api/douyin/login-status", method="GET")
+            self.assertEqual((status, payload["status"], payload["logged_in"]), (200, "busy", True))
+            database.assert_not_called()
+        finally:
+            server.DOUYIN_LOGIN_JOB.update(previous)
+
+    def test_deleted_video_detail_is_private_read_only_and_keeps_normal_detail_excluding_deleted(self):
+        row = {"id": "gone", "deleted_at": 123, "delete_reason": "推广"}
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = row
+        conn.execute.return_value.fetchall.return_value = []
+        database = MagicMock()
+        database.__enter__.return_value = conn
+        with patch.object(server, "connect", return_value=database), \
+             patch.object(server, "row_to_video", return_value={"id": "gone", "transcript_text": "已保存的文案"}), \
+             patch.object(server, "call_deepseek") as model:
+            status, body, headers = self.request("/api/admin/deleted/videos/gone", method="GET",
+                                                cookie=server.make_admin_session_value())
+            self.assertEqual(status, 200)
+            self.assertEqual(body["video"]["deleted_at"], 123)
+            self.assertEqual(body["video"]["transcript_text"], "已保存的文案")
+            self.assertEqual(body["claims"], [])
+            self.assertEqual(headers["Cache-Control"], "private, no-store")
+            queries = [call.args[0] for call in conn.execute.call_args_list]
+            self.assertIn("deleted_at IS NOT NULL", queries[0])
+            self.assertIn("deleted_at IS NULL", queries[1])
+            self.assertTrue(all(query.startswith("SELECT") for query in queries))
+            conn.execute.reset_mock()
+            conn.execute.return_value.fetchone.return_value = None
+            self.assertEqual(self.request("/api/admin/deleted/videos/missing", method="GET",
+                                          cookie=server.make_admin_session_value())[0], 404)
+            self.assertEqual(self.request("/api/videos/gone", method="GET")[0], 404)
+            self.assertIn("deleted_at IS NULL", conn.execute.call_args.args[0])
+            model.assert_not_called()
+
+    def test_exclusions_are_private_no_store_and_missing_video_is_not_found(self):
+        payload = {"video": {"id": "vid-1", "title": "test"}, "total": 0, "items": []}
+        with patch.object(server, "connect", return_value=MagicMock()), \
+             patch.object(server.claim_exclusions, "fetch_records", return_value=payload) as fetch, \
+             patch.object(server, "call_deepseek") as model:
+            status, body, headers = self.request("/api/admin/videos/vid-1/exclusions", method="GET",
+                                                cookie=server.make_admin_session_value())
+            self.assertEqual((status, body), (200, payload))
+            self.assertEqual(headers["Cache-Control"], "private, no-store")
+            self.assertEqual(fetch.call_args.args[1], "vid-1")
+            fetch.return_value = None
+            self.assertEqual(self.request("/api/admin/videos/missing/exclusions", method="GET",
+                                          cookie=server.make_admin_session_value())[0], 404)
+            model.assert_not_called()
+
+    def test_authenticated_performance_is_private_no_store_and_read_only(self):
+        with patch.object(server, "connect", return_value=MagicMock()), \
+             patch.object(server.source_performance, "fetch_performance", return_value={"sources": []}) as fetch, \
+             patch.object(server, "call_deepseek") as model:
+            status, body, headers = self.request("/api/admin/source-performance", method="GET",
+                                                cookie=server.make_admin_session_value())
+            self.assertEqual((status, body), (200, {"sources": []}))
+            self.assertEqual(headers["Cache-Control"], "private, no-store")
+            fetch.assert_called_once()
+            model.assert_not_called()
 
     def test_read_only_keeps_public_library_reads_and_does_not_grant_cross_origin_access(self):
         db = MagicMock()
@@ -270,6 +352,8 @@ class AdminPermissionTests(unittest.TestCase):
 
     def test_authenticated_quick_ingest_keeps_validation_and_upstream_behavior(self):
         conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = {"id": "test-video", "published_at": None,
+            "source_id": None, "purged_at": None, "platform": "test", "creator": "test", "title": "test"}
         db = MagicMock()
         db.__enter__.return_value = conn
         with patch.object(server, "connect", return_value=db) as connect, \

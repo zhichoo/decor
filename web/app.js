@@ -46,7 +46,7 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
-const API_CACHE_KEY = `zhuangxiuApiSnapshot:v7${window.DECOR_PUBLIC_LIBRARY ? `:${window.DECOR_PUBLIC_LIBRARY.snapshot}` : ""}`;
+const API_CACHE_KEY = `zhuangxiuApiSnapshot:v9${window.DECOR_PUBLIC_LIBRARY ? `:${window.DECOR_PUBLIC_LIBRARY.snapshot}` : ""}`;
 const API_CACHE_MAX_AGE = 10 * 60 * 1000;
 
 const fallbackVideos = [];
@@ -75,7 +75,7 @@ const knowledgeCategoryGroups = [
   },
   {
     title: "按内容类型",
-    items: ["选购建议", "施工做法", "验收要求", "价格信息", "个人体验", "中性说明", "其他", "旧版未分类"].map((value) => ({ type: "contentType", value, label: value, meta: "观点主要类型" })),
+    items: ["选购建议", "施工做法", "验收要求", "价格信息", "个人体验", "中性说明", "其他", "未分类"].map((value) => ({ type: "contentType", value, label: value, meta: "观点主要类型" })),
   },
 ];
 const viewTitles = {
@@ -85,7 +85,8 @@ const viewTitles = {
   detail: "视频详情",
   progress: "处理进度",
   knowledge: "知识库",
-  deleted: "已删除",
+  guide: "装修指南",
+  deleted: "回收站",
   settings: "设置",
 };
 const viewNames = new Set(Object.keys(viewTitles));
@@ -105,11 +106,19 @@ let progressVideos = [];
 let sources = [];
 let knowledgeClaims = [];
 let deletedItems = { videos: [], claims: [], videoTotal: 0, claimTotal: 0, loading: false, error: "" };
+let activeDeletedTab = "videos";
+let deletedLoadRequestId = 0;
+let deletedSessionVersion = 0;
+// Keep deleted previews out of the active-video cache and pagination.
+const deletedVideoDetails = new Map();
+const retainedSourceDetails = new Map();
+const videoDetailVersions = new Map();
 let activeView = getInitialView();
 let selectedVideoId = videos[0]?.id || null;
 const transcriptEdits = new Map();
 const videoExtractions = new Map();
 const videoTranscriptions = new Map();
+const detailedVideos = new Map();
 let activeSourceFilter = null;
 let activeVideoPlatform = "全部";
 let activeVideoCreator = "全部";
@@ -129,7 +138,15 @@ let videoFacets = null;
 let knowledgeFacets = null;
 let adminSession = { authenticated: false, configured: false };
 let adminSessionLoaded = false;
+let sourcePerformance = { status: "idle", sources: new Map(), reasonLabels: {}, error: "" };
+let sourcePerformanceRequestId = 0;
+let exclusionRequestId = 0;
+const expandedSourcePerformance = new Set();
+const expandedProgressNotes = new Set();
 let progressSummary = null;
+// Views that only a logged-in admin can open; visitors fall back to the overview.
+const ADMIN_VIEWS = new Set(["deleted", "settings", "progress"]);
+let progressLoadedForAdmin = false;
 let apiLoadRequestId = 0;
 let videoLoadRequestId = 0;
 let videoListRepairPending = false;
@@ -142,6 +159,12 @@ let douyinLoginRequestId = 0;
 let douyinLoginTimer = null;
 let knowledgeSearchTimer = null;
 let autoLoadObserver = null;
+let navigationEntryKey = null;
+const navigationPositions = new Map();
+let pendingKnowledgeReturnPosition = null;
+let detailLoadError = "";
+let detailLoadingId = null;
+let detailLoadRequestId = 0;
 let queueLogFollowState = { global: true };
 let adminLoginBusy = false;
 let adminLoginReturnFocus = null;
@@ -274,7 +297,7 @@ function normalizeApiClaim(claim) {
     object: claim.object_name,
     stance: claim.stance,
     authorStance: claim.author_stance || ({ "明确推荐": "赞成", "明确不推荐": "反对" }[claim.stance] || "未明确"),
-    contentType: claim.content_type || "旧版未分类",
+    contentType: !claim.content_type || claim.content_type === "旧版未分类" ? "未分类" : claim.content_type,
     sourceQuotes: Array.isArray(claim.source_quotes) ? claim.source_quotes : [],
     legacyContext: !claim.author_stance || !claim.content_type,
     stage: claim.process_stage,
@@ -285,6 +308,9 @@ function normalizeApiClaim(claim) {
     alternatives: alternatives || "未提及",
     priceInfo: claim.price_info,
     sourceUrl: claim.source_video_url,
+    relationCounts: claim.relation_counts || {},
+    creator: claim.creator || "",
+    videoTitle: claim.video_title || "",
   };
 }
 
@@ -301,6 +327,7 @@ function normalizeApiVideo(video) {
     shareUrl: video.share_url,
     shareText: video.share_text,
     status: video.status,
+    sourceReadOnly: Boolean(video.source_read_only),
     adReview: video.ad_review || null,
     publishTime: video.published_at || "未提及",
     createdAt: video.created_at || null,
@@ -309,6 +336,7 @@ function normalizeApiVideo(video) {
     transcriptJob: video.transcript_job || null,
     lastRetryAt: video.last_retry_at || null,
     claimCount: video.claim_count || 0,
+    excludedClaimCount: Number(video.excluded_claim_count || 0),
     retryCount: video.retry_count || 0,
     lastError: video.last_error || "",
     hasTranscript: Boolean(video.has_transcript || transcriptLength > 0),
@@ -345,20 +373,53 @@ function getVideoStatusLabel(status) {
   return VIDEO_STATUS_LABELS[status] || "未知状态";
 }
 
+function videoBadgeSvg(name) {
+  const paths = {
+    video: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4Z"/>',
+    document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 12h8M8 16h5"/>',
+    claims: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5A8.5 8.5 0 0 1 10.5 3H12"/><path d="m14 4 2-2 2 2-2 2ZM17 10l2-2 2 2-2 2ZM7 11h5M7 15h8"/>',
+    promotion: '<path d="m3 10 14-6v16L3 14ZM17 9l4-2M17 15l4 2M7 16l1 5h4l-2-4"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    cross: '<path d="m7 7 10 10M17 7 7 17"/>',
+    running: '<path d="M20 12a8 8 0 1 1-8-8"/>',
+    filter: '<path d="M3 4h18l-7 8v7l-4 2v-9Z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    warning: '<path d="m12 3 10 18H2ZM12 9v4M12 17h.01"/>',
+    delete: '<path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/>',
+    support: '<path d="M7 10v11M15 6l-1 4h5a2 2 0 0 1 2 2.5l-2 7A2 2 0 0 1 17 21H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2l5-7a3 3 0 0 1 3 3Z"/>',
+    oppose: '<path d="M7 14V3M15 18l-1-4h5a2 2 0 0 0 2-2.5l-2-7A2 2 0 0 0 17 3H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2l5 7a3 3 0 0 0 3-3Z"/>',
+    statement: '<path d="M21 12a9 9 0 0 1-9 9H3l2.6-2.6A9 9 0 1 1 21 12Z"/><path d="M8 12h8"/>',
+    unknown: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4.3 1.7c-1 .6-1.8 1.1-1.8 2.3M12 17h.01"/>',
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ""}</svg>`;
+}
+
+function renderVideoStateBadge(kind, label, state, description) {
+  const stateIcon = state === "running" ? "running" : state === "done" ? "check" : "cross";
+  return `<span class="video-state-badge" data-state="${state}" title="${escapeAttr(description)}" aria-label="${escapeAttr(description)}">${videoBadgeSvg(kind)}<span>${label}</span><span class="video-state-mark">${videoBadgeSvg(stateIcon)}</span></span>`;
+}
+
+function getPromotionPresentation(video) {
+  const decision = video?.adReview?.decision;
+  if (decision === "advertising") return { label: "推广", icon: "promotion", state: "promotion" };
+  if (["uncertain", "error"].includes(decision)) return { label: "疑似推广", icon: "promotion", state: "uncertain" };
+  if (decision === "not_ad") return { label: "普通内容", icon: "check", state: "neutral" };
+  return { label: "未识别", icon: "clock", state: "neutral" };
+}
+
 function renderAdBadge(video) {
-  const decision = video.adReview?.decision;
-  if (!decision || decision === "not_ad") return "";
-  const label = decision === "advertising" ? "推广" : "疑似推广";
-  return `<span class="status" title="${escapeAttr(getVideoReasonLabel(video))}">${label}</span>`;
+  const promotion = getPromotionPresentation(video);
+  if (promotion.state === "neutral") return "";
+  return `<span class="video-state-badge video-promotion-badge" data-state="${promotion.state}" title="${escapeAttr(getVideoReasonLabel(video))}">${videoBadgeSvg(promotion.icon)}<span>${promotion.label}</span></span>`;
 }
 
 function getVideoReasonLabel(video) {
-  if (video?.adReview?.decision === "advertising") return `推广：${String(video.adReview.reason || "").replaceAll("广告", "推广")}；已跳过自动观点提取，可人工提取。`;
-  if (["uncertain", "error"].includes(video?.adReview?.decision)) return `疑似推广：${String(video.adReview.reason || "").replaceAll("广告", "推广")}；暂不自动提取观点。`;
+  if (video?.adReview?.decision === "advertising") return `推广：${String(video.adReview.reason || "").replaceAll("广告", "推广")}；跳过自动提取，可手动提取。`;
+  if (["uncertain", "error"].includes(video?.adReview?.decision)) return `疑似推广：${String(video.adReview.reason || "").replaceAll("广告", "推广")}；暂停自动提取。`;
   const reason = String(video?.lastError || "").trim();
   if (!reason) return "";
   if (reason.startsWith("deepseek_timeout:") || reason.includes("Operation timed out")) {
-    return "模型响应超时，文案和已有知识卡已保留，可稍后重试提取观点。";
+    return "模型超时，文案和知识卡已保留，可重试。";
   }
   if (video.status === "claims_filtered") return `无可用观点：${reason.replace(/^无有效内容[:：]\s*/, "")}`;
   if (video.status === "transcript_failed") return `文案失败：${reason}`;
@@ -434,7 +495,7 @@ function applyApiSnapshot(snapshot) {
   videoFacets = snapshot.videoFacets || null;
   knowledgeFacets = snapshot.knowledgeFacets || null;
   progressSummary = snapshot.progressSummary || progressSummary;
-  if (activeView === "detail" && snapshot.selectedVideoId) selectedVideoId = snapshot.selectedVideoId;
+  if (activeView === "detail" && snapshot.selectedVideoId) selectedVideoId = history.state?.videoId || snapshot.selectedVideoId;
   if (activeSourceFilter && !sources.some((source) => source.id === activeSourceFilter.id)) {
     activeSourceFilter = null;
   }
@@ -484,9 +545,32 @@ function renderAdminSession() {
   syncAdminActionButtons();
   if (openIngestButton) openIngestButton.hidden = activeView !== "sources" || !adminSession.authenticated;
   if (!adminSession.authenticated) {
+    deletedSessionVersion += 1;
+    deletedLoadRequestId += 1;
+    deletedItems = { videos: [], claims: [], videoTotal: 0, claimTotal: 0, loading: false, error: "" };
+    deletedVideoDetails.clear();
+    renderDeleted();
+    progressLoadedForAdmin = false;
+    progressSummary = null;
+    progressVideos = [];
+    progressPageState = { total: 0, limit: VIDEO_PAGE_SIZE, offset: 0, hasMore: false, loading: false, error: "" };
+    renderProgress();
+    if (document.querySelector('#detail-view[data-deleted-preview="true"]')) renderDetail();
+    if (adminSessionLoaded && activeView === "detail" && history.state?.deletedVideo) setView("overview");
+    clearVideoExclusions();
+    sourcePerformanceRequestId += 1;
+    sourcePerformance = { status: "idle", sources: new Map(), reasonLabels: {}, error: "" };
+    expandedSourcePerformance.clear();
+    // Remove private source content even when the sources view is currently hidden.
+    renderSources();
     if (ingestPanel) ingestPanel.hidden = true;
     openIngestButton?.setAttribute("aria-expanded", "false");
-    if (["deleted", "settings"].includes(activeView)) setView(activeView);
+    if (ADMIN_VIEWS.has(activeView)) setView(activeView);
+  } else if (!progressLoadedForAdmin && apiLoadState.status === "ready") {
+    // Progress data is admin-only, so it loads once the session is confirmed.
+    progressLoadedForAdmin = true;
+    loadProgressSummary();
+    loadProgressPage();
   }
   if (!adminPanel || !adminStatus || !adminLoginButton || !adminLogoutButton) return;
   adminPanel.hidden = !adminSessionLoaded || Boolean(adminSession.read_only) || Boolean(adminSession.error);
@@ -502,6 +586,33 @@ function renderAdminSession() {
     adminLogoutButton.hidden = !adminSession.authenticated;
   }
   renderIfActive("sources", "videos", "progress", "detail", "knowledge", "deleted", "settings");
+  if (activeView === "sources" && sourcePerformance.status === "idle") loadSourcePerformance();
+}
+
+async function loadSourcePerformance() {
+  if (!adminSession.authenticated || adminSession.read_only || window.DECOR_PUBLIC_LIBRARY
+      || sourcePerformance.status === "loading") return;
+  const requestId = ++sourcePerformanceRequestId;
+  sourcePerformance = { ...sourcePerformance, status: "loading", error: "" };
+  if (activeView === "sources") renderSources();
+  try {
+    const response = await fetch(`${API_BASE}/admin/source-performance`, { credentials: "include", cache: "no-store" });
+    if (requestId !== sourcePerformanceRequestId || !adminSession.authenticated) return;
+    if (response.status === 401) {
+      adminSession = { ...adminSession, authenticated: false };
+      renderAdminSession();
+      return;
+    }
+    if (!response.ok) throw new Error("暂时无法读取，请重试");
+    const payload = await response.json();
+    if (requestId !== sourcePerformanceRequestId || !adminSession.authenticated) return;
+    sourcePerformance = { status: "ready", sources: new Map((payload.sources || []).map(item => [item.source_id, item])),
+      reasonLabels: payload.reason_labels || {}, error: "" };
+  } catch (error) {
+    if (requestId !== sourcePerformanceRequestId || !adminSession.authenticated) return;
+    sourcePerformance = { ...sourcePerformance, status: "error", error: "暂时无法读取，请重试" };
+  }
+  if (activeView === "sources") renderSources();
 }
 
 async function loadAdminSession() {
@@ -512,32 +623,77 @@ async function loadAdminSession() {
   }
   adminSessionLoaded = true;
   renderAdminSession();
-  if (["#deleted", "#settings"].includes(window.location.hash)) syncViewFromHash();
+  if (ADMIN_VIEWS.has(window.location.hash.slice(1))) syncViewFromHash();
+  if (adminSession.authenticated && activeView === "detail" && history.state?.deletedVideo) loadSelectedVideoDetail();
   return adminSession;
 }
 
-async function loadDeletedItems() {
+async function fetchDeletedJson(path) {
+  requireAdminAction();
+  const sessionVersion = deletedSessionVersion;
+  const response = await fetch(`${API_BASE}${path}`, { credentials: "include", cache: "no-store" });
+  if (sessionVersion !== deletedSessionVersion || !adminSession.authenticated) throw new Error("管理员会话已变化");
+  if (response.status === 401) {
+    adminSession = { ...adminSession, authenticated: false };
+    renderAdminSession();
+    throw new Error("请重新登录管理员");
+  }
+  if (!response.ok) throw new Error("读取失败，请重试");
+  return response.json();
+}
+
+async function loadDeletedItems({ append = false, preserveLoaded = false } = {}) {
   if (!adminSession.authenticated) {
     deletedItems = { ...deletedItems, videos: [], claims: [], videoTotal: 0, claimTotal: 0, loading: false, error: "" };
     renderDeleted();
     return;
   }
+  const requestId = ++deletedLoadRequestId;
+  const offset = append ? Math.max(deletedItems.videos.length, deletedItems.claims.length) : 0;
+  const targetCount = preserveLoaded ? Math.max(50, deletedItems.videos.length, deletedItems.claims.length) : 50;
   deletedItems = { ...deletedItems, loading: true, error: "" };
   renderDeleted();
   try {
-    const payload = await fetchApiJson("/admin/deleted");
+    const payload = await fetchDeletedJson(`/admin/deleted${offset ? buildQueryString({ offset }) : ""}`);
+    // Refill the loaded range after deletion so the current scroll position stays reachable.
+    for (let nextOffset = 50; !append && nextOffset < targetCount; nextOffset += 50) {
+      if (requestId !== deletedLoadRequestId || !adminSession.authenticated) return;
+      if (nextOffset >= Math.max(payload.video_total || 0, payload.claim_total || 0)) break;
+      const next = await fetchDeletedJson(`/admin/deleted${buildQueryString({ offset: nextOffset })}`);
+      payload.videos = [...(payload.videos || []), ...(next.videos || [])];
+      payload.claims = [...(payload.claims || []), ...(next.claims || [])];
+      payload.video_total = next.video_total;
+      payload.claim_total = next.claim_total;
+    }
+    if (requestId !== deletedLoadRequestId || !adminSession.authenticated) return;
+    const merge = (previous, received) => append ? [...new Map([...previous, ...received].map(item => [item.id, item])).values()] : received;
     deletedItems = {
-      videos: payload.videos || [],
-      claims: payload.claims || [],
+      videos: merge(deletedItems.videos, payload.videos || []),
+      claims: merge(deletedItems.claims, payload.claims || []),
       videoTotal: normalizeCount(payload.video_total) || 0,
       claimTotal: normalizeCount(payload.claim_total) || 0,
       loading: false,
       error: "",
+      loaded: true,
     };
   } catch (error) {
+    if (requestId !== deletedLoadRequestId || !adminSession.authenticated) return;
     deletedItems = { ...deletedItems, loading: false, error: error.message };
   }
   renderDeleted();
+}
+
+function isDeletedVideoDetail() {
+  return activeView === "detail" && Boolean(history.state?.deletedVideo);
+}
+
+async function loadDeletedVideoDetail(videoId) {
+  const sessionVersion = deletedSessionVersion;
+  const detail = await fetchDeletedJson(`/admin/deleted/videos/${encodeURIComponent(videoId)}`);
+  if (sessionVersion !== deletedSessionVersion || !adminSession.authenticated) return;
+  const video = normalizeApiVideo({ ...detail.video, claims: detail.claims, claim_count: detail.claims.length });
+  deletedVideoDetails.set(videoId, video);
+  return video;
 }
 
 function setAdminLoginMessage(message = "", type = "") {
@@ -792,18 +948,52 @@ function getProgressApiParams(offset = 0) {
   };
 }
 
-function loadKnowledgePage({ append = false } = {}) {
+function loadKnowledgePage({ append = false, preserveLoaded = false, minimumCount = 0 } = {}) {
   const requestId = ++knowledgeLoadRequestId;
   const offset = append ? knowledgePageState.offset : 0;
-  if (!append) knowledgeClaims = [];
+  const targetCount = preserveLoaded ? Math.max(KNOWLEDGE_PAGE_SIZE, minimumCount, knowledgeClaims.length) : 0;
+  if (!append && !preserveLoaded) knowledgeClaims = [];
   knowledgePageState = { ...knowledgePageState, loading: true, error: "" };
   renderKnowledge();
-  return fetchApiJson(`/knowledge${buildQueryString(getKnowledgeApiParams(offset))}`)
-    .then((payload) => {
+  const requestPage = (pageOffset) => fetchApiJson(`/knowledge${buildQueryString(getKnowledgeApiParams(pageOffset))}`);
+  const firstPagePromise = requestPage(offset);
+  const loadedRangePromise = preserveLoaded && !append
+    ? firstPagePromise.then(async (firstPage) => {
+        const pages = [firstPage];
+        let nextOffset = KNOWLEDGE_PAGE_SIZE;
+        while (requestId === knowledgeLoadRequestId && nextOffset < targetCount && nextOffset < (firstPage.total || 0)) {
+          const next = await requestPage(nextOffset);
+          pages.push(next);
+          const received = (next.claims || []).length;
+          if (!received || !next.has_more) break;
+          nextOffset += received;
+        }
+        return pages;
+      })
+    : null;
+  return (loadedRangePromise || firstPagePromise.then((payload) => [payload]))
+    .then((pages) => {
+      const payload = pages[0];
       if (requestId !== knowledgeLoadRequestId) return;
-      const nextClaims = (payload.claims || []).map(normalizeKnowledgeClaim);
+      const nextClaims = pages.length > 1
+        ? appendUniqueById((pages[0].claims || []).map(normalizeKnowledgeClaim),
+            pages.slice(1).flatMap((page) => page.claims || []).map(normalizeKnowledgeClaim))
+        : (payload.claims || []).map(normalizeKnowledgeClaim);
       knowledgeClaims = append ? appendUniqueById(knowledgeClaims, nextClaims) : nextClaims;
-      updateKnowledgePageState(payload, append);
+      if (preserveLoaded) {
+        const facetPage = pages[pages.length - 1] || payload;
+        updateKnowledgePageState({
+          ...facetPage,
+          total: payload.total,
+          offset: 0,
+          has_more: Boolean(facetPage.has_more),
+        }, append);
+        if (pages.length > 1) {
+          knowledgePageState.offset = knowledgeClaims.length;
+        }
+      } else {
+        updateKnowledgePageState(payload, append);
+      }
       apiStats = {
         ...apiStats,
         claimCount: normalizeCount(payload.facets?.total) ?? apiStats.claimCount,
@@ -864,6 +1054,7 @@ function loadVideoPage({ append = false, preserveLoaded = false } = {}) {
 }
 
 function loadProgressPage({ append = false } = {}) {
+  if (!adminSession.authenticated) return Promise.resolve();
   const offset = append ? progressPageState.offset : 0;
   progressPageState = { ...progressPageState, loading: true, error: "" };
   renderProgress();
@@ -883,6 +1074,7 @@ function loadProgressPage({ append = false } = {}) {
 }
 
 function loadProgressSummary() {
+  if (!adminSession.authenticated) return Promise.resolve();
   return fetchApiJson("/progress-summary")
     .then((payload) => {
       progressSummary = payload.counts || null;
@@ -897,7 +1089,11 @@ function loadProgressSummary() {
 async function fetchApiJson(path) {
   if (window.DECOR_PUBLIC_LIBRARY) return window.DECOR_PUBLIC_LIBRARY.get(path);
   const response = await fetch(`${API_BASE}${path}`, { credentials: "include" });
-  if (!response.ok) throw new Error(`${path.replace(/^\//, "")} ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`${path.replace(/^\//, "")} ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 
@@ -921,6 +1117,7 @@ async function loadApiData(options = {}) {
     if (preserveVideoList) await loadVideoPage({ preserveLoaded: true });
     apiLoadState = { status: "ready", error: "", attempts: attempt };
     renderAll();
+    if (activeView === "sources") loadSourcePerformance();
     writeApiCache();
     if (bootstrapPayload.knowledge?.deferred) {
       loadKnowledgePage();
@@ -928,7 +1125,7 @@ async function loadApiData(options = {}) {
     loadProgressSummary();
     loadProgressPage();
     if (activeView === "detail" && selectedVideoId) {
-      loadVideoDetail(selectedVideoId).then(renderDetail).catch((error) => console.info("Video detail load failed:", error.message));
+      loadSelectedVideoDetail();
     }
     return;
   } catch (error) {
@@ -984,6 +1181,7 @@ async function loadApiData(options = {}) {
       transcriptCount: videos.filter(hasVideoTranscript).length,
     };
     renderAll();
+    if (activeView === "sources") loadSourcePerformance();
     writeApiCache();
     loadProgressSummary();
     loadProgressPage();
@@ -1020,33 +1218,39 @@ async function loadApiData(options = {}) {
 }
 
 async function loadVideoDetail(videoId) {
-  const detail = await fetchApiJson(`/videos/${encodeURIComponent(videoId)}`);
+  const version = videoDetailVersions.get(videoId) || 0;
+  let detail;
+  try {
+    detail = await fetchApiJson(`/videos/${encodeURIComponent(videoId)}`);
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    detail = await fetchApiJson(`/knowledge/sources/${encodeURIComponent(videoId)}`);
+  }
+  if (version !== (videoDetailVersions.get(videoId) || 0)) return null;
   const detailedVideo = normalizeApiVideo({
     ...detail.video,
     claim_count: detail.claims.length,
     claims: detail.claims,
   });
-  videos = upsertVideoById(videos, detailedVideo);
-  progressVideos = upsertVideoById(progressVideos, detailedVideo);
-  selectedVideoId = videoId;
+  if (detailedVideo.sourceReadOnly) {
+    detailedVideos.delete(videoId);
+    retainedSourceDetails.set(videoId, detailedVideo);
+    return detailedVideo;
+  }
+  retainedSourceDetails.delete(videoId);
+  detailedVideos.set(videoId, detailedVideo);
+  // A source can be outside the loaded pages; reading it must not alter list pagination.
+  const updateExisting = (video) => video.id === videoId ? { ...video, ...detailedVideo } : video;
+  videos = videos.map(updateExisting);
+  progressVideos = progressVideos.map(updateExisting);
   writeApiCache();
   return detailedVideo;
 }
 
-function upsertVideoById(items, nextVideo) {
-  if (!nextVideo?.id) return items;
-  let replaced = false;
-  const nextItems = items.map((video) => {
-    if (video.id !== nextVideo.id) return video;
-    replaced = true;
-    return { ...video, ...nextVideo };
-  });
-  return replaced ? nextItems : [nextVideo, ...nextItems];
-}
-
 function findDetailVideo(videoId) {
+  if (isDeletedVideoDetail() && videoId === selectedVideoId) return adminSession.authenticated ? deletedVideoDetails.get(videoId) || null : null;
   if (!videoId) return videos[0] || progressVideos[0] || null;
-  return videos.find((item) => item.id === videoId) || progressVideos.find((item) => item.id === videoId) || videos[0] || progressVideos[0] || null;
+  return detailedVideos.get(videoId) || retainedSourceDetails.get(videoId) || videos.find((item) => item.id === videoId) || progressVideos.find((item) => item.id === videoId) || null;
 }
 
 function setSourceMessage(message, type = "") {
@@ -1184,7 +1388,7 @@ async function saveVideoFromForm(mode) {
 
   if (mode === "extract") {
     const extracted = await postJson(`${API_BASE}/videos/${videoId}/extract`, {});
-    if (extracted.status !== "completed") {
+    if (!["completed", "filtered"].includes(extracted.status)) {
       throw new Error(extracted.status || "extract_failed");
     }
   }
@@ -1219,7 +1423,7 @@ async function quickIngestVideo(payload, shouldExtract) {
     transcript_source: transcriptText ? "AnyToCopy/manual" : undefined,
     extract: shouldExtract,
   });
-  if (shouldExtract && result.extraction?.status !== "completed") {
+  if (shouldExtract && !["completed", "filtered", "skipped_existing_extraction", "skipped_advertising"].includes(result.extraction?.status)) {
     throw new Error(result.extraction?.status || "extract_failed");
   }
 
@@ -1234,6 +1438,9 @@ async function quickIngestVideo(payload, shouldExtract) {
 }
 
 function removeVideoFromState(videoId, deleteClaims = true) {
+  videoDetailVersions.set(videoId, (videoDetailVersions.get(videoId) || 0) + 1);
+  detailedVideos.delete(videoId);
+  retainedSourceDetails.delete(videoId);
   if (videos.some((video) => video.id === videoId)) {
     videoPageState.total = Math.max(0, videoPageState.total - 1);
     videoPageState.offset = Math.max(0, videoPageState.offset - 1);
@@ -1252,6 +1459,11 @@ function removeVideoFromState(videoId, deleteClaims = true) {
 
 function removeClaimFromState(claimId, videoId) {
   knowledgeClaims = knowledgeClaims.filter((claim) => claim.id !== claimId);
+  const detail = detailedVideos.get(videoId);
+  if (detail) {
+    detailedVideos.set(videoId, { ...detail, claims: detail.claims.filter((claim) => claim.id !== claimId),
+      claimCount: Math.max(0, detail.claimCount - 1) });
+  }
   videos = videos.map((video) => {
     if (video.id !== videoId) return video;
     const claims = video.claims.filter((claim) => claim.id !== claimId);
@@ -1264,11 +1476,15 @@ function removeClaimFromState(claimId, videoId) {
   });
 }
 
-function confirmVideoDeletion(video) {
+function confirmVideoDeletion(video, { permanent = false } = {}) {
   const dialog = document.querySelector("#video-delete-dialog");
   if (dialog.open) return Promise.resolve(null);
   document.querySelector("#video-delete-name").textContent = video.title || video.id;
   const deleteClaims = document.querySelector("#video-delete-claims");
+  document.querySelector("#video-delete-title").textContent = permanent ? "永久删除这个视频？" : "将视频移入回收站？";
+  document.querySelector("#video-delete-desc").textContent = permanent ? "将清除视频文案、提取记录及全部关联知识卡，无法恢复。" : "可在回收站恢复。";
+  document.querySelector(".video-delete-option").hidden = permanent;
+  document.querySelector(".video-delete-confirm").textContent = permanent ? "永久删除" : "移入回收站";
   deleteClaims.checked = true;
   dialog.returnValue = "cancel";
   return new Promise((resolve) => {
@@ -1301,7 +1517,7 @@ async function deleteVideo(videoId) {
     await loginAdmin();
     if (!adminSession.authenticated) return;
   }
-  const video = videos.find((item) => item.id === videoId) || progressVideos.find((item) => item.id === videoId);
+  const video = findDetailVideo(videoId);
   if (!video) return;
   deletingVideoIds.add(videoId);
   try {
@@ -1309,15 +1525,47 @@ async function deleteVideo(videoId) {
     if (!confirmation) return;
     const scrollPosition = { left: window.scrollX, top: window.scrollY };
     const deletionView = activeView;
+    const deletionEntryKey = navigationEntryKey;
+    const wasDetail = deletionView === "detail" && selectedVideoId === videoId;
+    const returnPosition = history.state?.returnView === "videos" ? navigationPositions.get(history.state.returnEntryKey) : null;
     await deleteJson(`${API_BASE}/videos/${videoId}?delete_claims=${confirmation.deleteClaims}`);
     removeVideoFromState(videoId, confirmation.deleteClaims);
     await Promise.allSettled([loadProgressSummary(), loadKnowledgePage(), loadVideoPage({ preserveLoaded: true }), refreshLibraryMetadata()]);
     renderAll();
+    if (wasDetail && activeView === "detail" && navigationEntryKey === deletionEntryKey) {
+      setView("videos", { replaceHistory: true });
+      restoreNavigationPosition(returnPosition);
+      return;
+    }
     if (activeView === deletionView) {
       window.scrollTo({ ...scrollPosition, behavior: "instant" });
     }
   } finally {
     deletingVideoIds.delete(videoId);
+  }
+}
+
+const purgingVideoIds = new Set();
+
+async function purgeVideo(videoId) {
+  requireAdminAction();
+  if (purgingVideoIds.has(videoId)) return;
+  const video = deletedItems.videos.find(item => item.id === videoId);
+  if (!video) return;
+  purgingVideoIds.add(videoId);
+  try {
+    if (!await confirmVideoDeletion(video, { permanent: true })) return;
+    const position = { left: window.scrollX, top: window.scrollY };
+    await deleteJson(`${API_BASE}/admin/deleted/videos/${encodeURIComponent(videoId)}`);
+    removeVideoFromState(videoId, true);
+    deletedVideoDetails.delete(videoId);
+    deletedItems.videos = deletedItems.videos.filter(item => item.id !== videoId);
+    deletedItems.claims = deletedItems.claims.filter(item => item.video_id !== videoId);
+    await Promise.allSettled([loadDeletedItems({ preserveLoaded: true }), loadKnowledgePage(), refreshLibraryMetadata(), loadProgressSummary()]);
+    renderAll();
+    if (activeView === "deleted") window.scrollTo({ ...position, behavior: "instant" });
+  } finally {
+    purgingVideoIds.delete(videoId);
   }
 }
 
@@ -1327,13 +1575,21 @@ async function deleteClaim(claimId, videoId) {
     if (!adminSession.authenticated) return;
   }
   if (!confirm("确定删除这条观点吗？")) return;
+  const scrollPosition = { left: window.scrollX, top: window.scrollY };
+  const deletionView = activeView;
+  const deletionEntryKey = navigationEntryKey;
+  const knownLoadedCount = knowledgeClaims.length;
   const result = await deleteJson(`${API_BASE}/claims/${claimId}`);
   removeClaimFromState(claimId, result.video_id || videoId);
-  await Promise.allSettled([loadProgressSummary(), loadKnowledgePage()]);
-  if (selectedVideoId) {
+  await Promise.allSettled([loadProgressSummary(), loadKnowledgePage({ preserveLoaded: true,
+    minimumCount: knownLoadedCount })]);
+  if (deletionView === "detail" && selectedVideoId) {
     await loadVideoDetail(selectedVideoId).catch(() => {});
   }
   renderAll();
+  if (activeView === deletionView && navigationEntryKey === deletionEntryKey) {
+    window.scrollTo({ ...scrollPosition, behavior: "instant" });
+  }
 }
 
 async function batchCollectVideos(payload) {
@@ -1589,7 +1845,7 @@ async function extractNextQueuedVideo() {
     setQueueMessage("没有已保存文案等待提取。", "ok");
     return result;
   }
-  if (result.status !== "completed") {
+  if (!["completed", "filtered", "skipped_existing_extraction", "skipped_advertising"].includes(result.status)) {
     throw new Error(result.status || "extract_failed");
   }
   await loadApiData();
@@ -1597,7 +1853,8 @@ async function extractNextQueuedVideo() {
   renderAll();
   renderDetail();
   setView("detail");
-  setQueueMessage(`已提取：${result.video.title}，新增 ${result.claims.length} 条观点。`, "ok");
+  const skipped = result.status.startsWith("skipped_");
+  setQueueMessage(skipped ? result.message || "已跳过自动提取。" : `已提取：${result.video.title}，新增 ${result.claims.length} 条观点。`, "ok");
   return result;
 }
 
@@ -1667,6 +1924,7 @@ function getQueueResultText(status) {
     return `处理失败：${error}`;
   }
   if (processed.some((item) => item.stage === "skipped_advertising")) return "推广或待确认内容，已跳过自动观点提取";
+  if (processed.some((item) => item.stage === "skipped_existing_extraction")) return "文案已尝试提取，已跳过自动重试";
   if (processed.length) return "处理完成";
   return "处理结束，未产生新结果";
 }
@@ -1710,7 +1968,8 @@ function getProgressStageTags(video) {
   const transcriptLabel = getVideoTranscriptLabel(video);
   const claimCount = video.claimCount || video.claims.length;
   const live = getLiveProgressStage(video);
-  const isFailed = video.status === "transcript_failed" || Boolean(video.lastError) || live.stage === "failed";
+  const isRunning = ["running", "transcript_running", "claims_running"].includes(live.stage);
+  const isFailed = live.stage === "failed" || (!isRunning && getVideoProgressState(video).key === "失败");
   const isFiltered = video.status === "claims_filtered";
 
   const tags = [
@@ -1759,15 +2018,19 @@ function getProgressStageTags(video) {
 
 function renderProgressStageTags(video) {
   const { tags } = getProgressStageTags(video);
+  const promotion = getPromotionPresentation(video);
   return tags
     .map((tag) => {
       const canOpenClaims = tag.key === "claims" && tag.state === "done" && (video.claimCount || video.claims.length) > 0;
       const tagName = canOpenClaims ? "button" : "span";
       const actionAttrs = canOpenClaims
-        ? ` type="button" data-video-id="${escapeAttr(video.id)}" aria-label="查看 ${escapeAttr(video.title)} 的观点"`
+        ? ` type="button" data-video-claims-id="${escapeAttr(video.id)}" aria-haspopup="dialog" aria-controls="video-claims-dialog" aria-label="查看 ${escapeAttr(video.title)} 的观点"`
         : "";
+      const icon = tag.key === "claims" && tag.state === "todo" && promotion.state !== "neutral" ? promotion.icon
+        : tag.state === "running" ? "running" : tag.state === "done" ? "check" : tag.state === "failed" ? "cross" : "clock";
       return `
         <${tagName} class="progress-stage-tag" data-stage="${escapeAttr(tag.key)}" data-state="${escapeAttr(tag.state)}"${actionAttrs}>
+          ${videoBadgeSvg(icon)}
           <strong>${escapeHtml(tag.title)}</strong>
           <em>${escapeHtml(tag.label)}</em>
         </${tagName}>
@@ -1778,15 +2041,48 @@ function renderProgressStageTags(video) {
 
 function renderProgressTimeTags(video) {
   return getVideoProgressTimeItems(video)
+    .filter((item) => !["未提及", "未记录"].includes(item.value))
     .map(
       (item) => `
-        <span class="progress-time-tag">
-          <strong>${escapeHtml(item.label)}</strong>
-          <em>${escapeHtml(item.value)}</em>
+        <span class="progress-time-tag" title="${escapeAttr(`${item.label} ${item.value}`)}">
+          <span>${item.label === "发布时间" ? "发布" : "更新"}</span>
+          <time>${escapeHtml(String(item.value).replace("T", " ").replace(/(\d{2}:\d{2}):\d{2}.*$/, "$1"))}</time>
         </span>
       `,
     )
     .join("");
+}
+
+function getProgressPresentation(video, state, live) {
+  const running = ["running", "transcript_running", "claims_running"].includes(live.stage);
+  if (running) return { tone: "running", label: live.stage === "claims_running" ? "提取观点中" : live.stage === "transcript_running" ? "获取文案中" : "处理中", icon: "running" };
+  if (live.stage === "failed" || state.key === "失败" || state.key === "缺链接") return { tone: "failed", label: state.key === "缺链接" ? "缺链接" : "失败", icon: "warning" };
+  if (state.key === "待确认" || (state.key === "已完成" && video.adReview?.decision === "advertising")) {
+    const promotion = getPromotionPresentation(video);
+    return { tone: promotion.state === "promotion" ? "promotion" : "warning", label: promotion.label, icon: promotion.icon, promotionState: promotion.state };
+  }
+  if (state.key === "已完成") return { tone: "done", label: state.label, icon: "check" };
+  return { tone: "pending", label: state.key, icon: "clock" };
+}
+
+function getProgressNotice(video) {
+  const reason = getVideoReasonLabel(video);
+  if (!reason) return null;
+  const error = String(video.lastError || "");
+  let summary;
+  if (video.adReview?.decision === "advertising") summary = "已跳过自动提取";
+  else if (["uncertain", "error"].includes(video.adReview?.decision)) summary = video.adReview.decision === "error" ? "推广识别失败" : "推广状态待确认";
+  else if (/local_asr_media_unavailable/.test(error)) summary = "视频不可访问，检查登录或权限";
+  else if (/deepseek_timeout|timed?\s*out|超时/i.test(error)) summary = "处理超时，可稍后重试";
+  else if (/\b503\b|service.unavailable|服务不可用/i.test(error)) summary = "服务暂不可用，可稍后重试";
+  else if (/额度|余额|quota|insufficient.balance/i.test(error)) summary = "转写或模型额度不足";
+  else if (/文案过短/.test(error)) summary = "文案过短，未提取观点";
+  else if (/evidence_/.test(error)) summary = "引句校验未通过";
+  else if (/invalid_|quality_check|parse_failed|证据校验|格式校验/.test(error)) summary = "观点校验未通过";
+  else if (video.status === "claims_filtered") summary = "没有可收录的观点";
+  else summary = reason.replace(/^(处理原因|文案失败)[:：]\s*/, "").replace(/\s+/g, " ");
+  if (summary.length > 32) summary = summary.slice(0, 31) + "…";
+  return { summary, detail: reason };
 }
 
 function escapeHtml(value) {
@@ -1973,17 +2269,61 @@ async function startVideoRetryJob(videoId, force = false) {
   await pollQueueStatus();
 }
 
+function createNavigationEntryKey() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function rememberNavigationPosition() {
+  if (!navigationEntryKey) return;
+  // Store reading position, not business data: returning must not resurrect deleted cards.
+  navigationPositions.set(navigationEntryKey, {
+    top: window.scrollY,
+    left: window.scrollX,
+    deletedTab: activeView === "deleted" ? activeDeletedTab : null,
+    openClaims: [...document.querySelectorAll(`#${activeView}-view .claim-more[open]`)]
+      .map((element) => element.closest("[data-claim-id]")?.dataset.claimId).filter(Boolean),
+  });
+}
+
+function restoreNavigationPosition(position) {
+  const openClaims = new Set(position?.openClaims || []);
+  document.querySelectorAll(`#${activeView}-view .claim-more`).forEach((element) => {
+    element.open = openClaims.has(element.closest("[data-claim-id]")?.dataset.claimId);
+  });
+  const key = navigationEntryKey;
+  const scroll = () => {
+    if (key === navigationEntryKey) window.scrollTo({ left: position?.left || 0, top: position?.top || 0, behavior: "instant" });
+  };
+  scroll();
+  window.requestAnimationFrame(scroll);
+}
+
 function setView(view, options = {}) {
   if (!viewNames.has(view)) {
     view = "overview";
   }
-  if (["deleted", "settings"].includes(view) && !adminSession.authenticated) {
+  if (view === "detail" && (options.deletedVideo || options.updateHash === false && history.state?.deletedVideo)
+      && adminSessionLoaded && !adminSession.authenticated) {
+    history.replaceState({ view: "overview" }, "", "#overview");
+    view = "overview";
+    options = { ...options, updateHash: false };
+  }
+  if (ADMIN_VIEWS.has(view) && !adminSession.authenticated) {
     // Preserve a bookmarked admin view only while the initial session check is pending.
     if (adminSessionLoaded) history.replaceState({ view: "overview" }, "", "#overview");
     view = "overview";
     options = { ...options, updateHash: false };
   }
+  const changedView = activeView !== view;
+  if (changedView) {
+    document.querySelectorAll('.claim-promotion-notice:has([aria-expanded="true"])')
+      .forEach((notice) => setClaimPromotionNotice(notice, false));
+  }
+  rememberNavigationPosition();
   activeView = view;
+  if (view === "deleted" && options.historyState) {
+    activeDeletedTab = navigationPositions.get(options.historyState.entryKey)?.deletedTab || activeDeletedTab;
+  }
   document.querySelectorAll(".view").forEach((el) => el.classList.remove("active"));
   document.querySelector(`#${view}-view`).classList.add("active");
   document.querySelectorAll(".nav-item").forEach((button) => {
@@ -1996,24 +2336,72 @@ function setView(view, options = {}) {
   if (view !== "sources" && ingestPanel) {
     ingestPanel.hidden = true;
   }
-  if (options.updateHash !== false && window.location.hash !== `#${view}`) {
-    history.pushState({ view }, "", `#${view}`);
+  if (view !== "detail") {
+    const promotionEditor = document.querySelector("#promotion-editor");
+    if (promotionEditor) promotionEditor.open = false;
+  }
+  if (options.updateHash !== false && (window.location.hash !== `#${view}` || (view === "detail" && history.state?.videoId !== selectedVideoId))) {
+    const returnEntryKey = navigationEntryKey;
+    navigationEntryKey = createNavigationEntryKey();
+    history[options.replaceHistory ? "replaceState" : "pushState"]({ view, entryKey: navigationEntryKey, videoId: view === "detail" ? selectedVideoId : null,
+      deletedVideo: view === "detail" && Boolean(options.deletedVideo),
+      returnEntryKey, returnView: options.returnView || null }, "", `#${view}`);
+  } else if (options.historyState) {
+    navigationEntryKey = options.historyState.entryKey;
+  }
+  if (view === "knowledge" && options.historyState) {
+    pendingKnowledgeReturnPosition = navigationPositions.get(navigationEntryKey) || null;
+  } else if (changedView) {
+    pendingKnowledgeReturnPosition = null;
   }
   if (options.render !== false) {
     renderCurrentView();
   }
+  if (options.historyState || changedView) {
+    restoreNavigationPosition(options.historyState ? navigationPositions.get(navigationEntryKey) : null);
+  }
+  updateKnowledgeBackToTop();
   if (view === "settings" && options.load !== false) loadTranscriptSettings();
   if (view === "sources" && options.load !== false && adminSession.authenticated) {
     refreshDouyinLoginStatus().catch((error) => console.info("Douyin login check failed:", error.message));
+    loadSourcePerformance();
   }
-  if (view === "deleted" && options.load !== false) {
+  if (view === "deleted" && options.load !== false && !(options.historyState && deletedItems.loaded)) {
     loadDeletedItems();
   }
 }
 
 function syncViewFromHash() {
   const view = window.location.hash.replace(/^#/, "") || "overview";
-  setView(viewNames.has(view) ? view : "overview", { updateHash: false });
+  const nextView = viewNames.has(view) ? view : "overview";
+  let state = history.state;
+  if (state?.entryKey === navigationEntryKey && nextView === activeView) return;
+  if (!state?.entryKey || state.view !== nextView) {
+    state = { view: nextView, entryKey: createNavigationEntryKey() };
+    history.replaceState(state, "");
+  }
+  if (nextView === "detail" && state.videoId) selectedVideoId = state.videoId;
+  setView(nextView, { updateHash: false, historyState: state });
+  if (nextView === "detail" && selectedVideoId) loadSelectedVideoDetail();
+}
+
+async function loadSelectedVideoDetail() {
+  const videoId = selectedVideoId;
+  const requestId = ++detailLoadRequestId;
+  detailLoadError = "";
+  detailLoadingId = videoId;
+  renderDetail();
+  try {
+    if (isDeletedVideoDetail()) await loadDeletedVideoDetail(videoId);
+    else await loadVideoDetail(videoId);
+  } catch (error) {
+    if (requestId === detailLoadRequestId && selectedVideoId === videoId) detailLoadError = error.message;
+  } finally {
+    if (requestId === detailLoadRequestId && selectedVideoId === videoId) {
+      detailLoadingId = null;
+      if (activeView === "detail") renderDetail();
+    }
+  }
 }
 
 function enforceHashView() {
@@ -2056,16 +2444,83 @@ function sourceHomepageLabel(source) {
   return platform && platform !== "待识别" ? `跳转到${platform}主页` : "跳转到来源主页";
 }
 
+function renderSourcePerformanceChart(item) {
+  const sampleCount = normalizeCount(item.sample_count) || 0;
+  const withCards = Math.min(sampleCount, normalizeCount(item.videos_with_cards) || 0);
+  const share = sampleCount ? withCards / sampleCount * 100 : 0;
+  const content = item.content_counts || {};
+  const segments = [["not_ad", "普通"], ["advertising", "推广"], ["uncertain", "存疑"],
+    ["error", "判定失败"], ["unknown", "未判定"]]
+    .map(([key, label]) => ({ key, label, count: normalizeCount(content[key]) || 0 }))
+    .filter(segment => segment.count > 0);
+  const contentLabel = segments.map(segment => `${segment.label} ${segment.count} 条`).join("，");
+  let offset = 0;
+  return `<div class="source-performance-chart">
+    <div class="source-performance-yield">
+      <svg class="source-performance-ring" viewBox="0 0 100 100" role="img" aria-label="${sampleCount
+        ? `有卡视频 ${withCards} / ${sampleCount} 条` : "暂无视频样本"}">
+        <circle class="performance-ring-track" cx="50" cy="50" r="41" />
+        <circle class="performance-ring-value" cx="50" cy="50" r="41" pathLength="100" stroke-dasharray="${share} 100" transform="rotate(-90 50 50)" />
+        <text class="performance-ring-number" x="50" y="46">${sampleCount ? `${withCards}/${sampleCount}` : "—"}</text>
+        <text class="performance-ring-label" x="50" y="64">${sampleCount ? "有卡视频" : "暂无样本"}</text>
+      </svg>
+      <dl class="source-performance-key-metrics">
+        <div><dt>知识卡</dt><dd>${normalizeCount(item.retained_cards) || 0}<small> 张</small></dd></div>
+        <div><dt>技术异常</dt><dd>${normalizeCount(item.technical_videos) || 0}<small> 条</small></dd></div>
+      </dl>
+    </div>
+    <div class="source-performance-content">
+      <svg class="source-performance-bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="内容判定：${contentLabel || "暂无判定数据"}">
+        <rect class="performance-bar-track" width="100" height="8" />
+        ${segments.map(segment => {
+          const width = sampleCount ? segment.count / sampleCount * 100 : 0;
+          const rect = `<rect class="performance-content-segment" data-content="${segment.key}" x="${offset}" width="${width}" height="8"><title>${segment.label} ${segment.count} 条</title></rect>`;
+          offset += width;
+          return rect;
+        }).join("")}
+      </svg>
+      <div class="source-performance-legend">${segments.length ? segments.map(segment =>
+        `<span><i data-content="${segment.key}" aria-hidden="true"></i>${segment.label}<strong>${segment.count}</strong></span>`).join("")
+        : "暂无内容判定"}</div>
+    </div>
+  </div>`;
+}
+
+function renderSourcePerformance(source) {
+  if (!adminSession.authenticated || adminSession.read_only || window.DECOR_PUBLIC_LIBRARY) return "";
+  const item = sourcePerformance.sources.get(source.id);
+  if (sourcePerformance.status === "error") return `<div class="source-performance-message" data-source-performance>
+    近期入库表现暂不可用 <button type="button" class="text-button" data-retry-source-performance>重试</button></div>`;
+  if (!item) return `<div class="source-performance-message" data-source-performance>${sourcePerformance.status === "loading"
+    ? "正在读取近期入库表现…" : "暂无近期统计"}</div>`;
+  return `<details class="source-performance" data-source-performance="${escapeAttr(source.id)}" ${expandedSourcePerformance.has(source.id) ? "open" : ""}>
+    <summary><span>近期入库表现<small class="source-performance-brief">${Number(item.videos_with_cards)} 条有卡 · ${Number(item.retained_cards)} 张知识卡</small></span><span class="source-performance-coverage" title="最近已采集的 ${Number(item.sample_count)} 条视频">${Number(item.sample_count)} / 10</span></summary>
+    <div class="source-performance-body">
+      ${renderSourcePerformanceChart(item)}
+    </div>
+  </details>`;
+}
+
 function renderSources() {
+  if (adminSession.authenticated) document.querySelectorAll(".source-performance").forEach(element => {
+    const id = element.dataset.sourcePerformance;
+    // A refresh can precede the native toggle event; preserve the actual open state.
+    if (element.open) expandedSourcePerformance.add(id);
+    else expandedSourcePerformance.delete(id);
+  });
+  const focused = document.activeElement;
+  const focusedSourceId = focused?.matches(".source-performance summary")
+    ? focused.closest("[data-source-performance]")?.dataset.sourcePerformance : null;
   const sourceSummary = document.querySelector("#source-summary");
   if (sourceSummary) {
     const total = sources.reduce((sum, source) => sum + (normalizeCount(source.video_count) ?? 0), 0);
-    sourceSummary.textContent = `${sources.length} 个来源，${total} 条入库视频。${window.DECOR_PUBLIC_LIBRARY ? "公开快照，仅供浏览与检索。" : "每位博主默认更新最新 5 条，自动跳过置顶。"}`;
+    sourceSummary.textContent = `${sources.length} 个来源 · ${total} 条视频${adminSession.authenticated ? " · 更新跳过置顶" : ""}`;
   }
   const loginChecking = douyinLoginChecking || douyinLoginStatus.running;
+  const loginBusy = douyinLoginStatus.status === "busy";
   const loginUnknown = ["idle", "unknown"].includes(douyinLoginStatus.status) || douyinLoginStatus.logged_in == null;
   const loginType = loginChecking || loginUnknown ? "warn" : douyinLoginStatus.logged_in ? "done" : "";
-  const loginLabel = loginChecking ? "登录检测中" : loginUnknown ? "登录态待确认"
+  const loginLabel = loginChecking ? "登录检测中" : loginBusy ? "浏览器正忙" : loginUnknown ? "登录态待确认"
     : douyinLoginStatus.logged_in ? "登录态已保存" : "抖音未登录";
   const platformOrder = ["抖音", "小红书", "B站", "待识别"];
   const groupedSources = sources.reduce((acc, source) => {
@@ -2094,6 +2549,7 @@ function renderSources() {
         <span class="chip">${Number(source.pending_count || 0)} 条文案待提取</span>
         <span class="chip">${Number(source.claim_count || 0)} 条观点</span>
       </div>
+      ${renderSourcePerformance(source)}
       ${adminSession.authenticated ? `<footer data-admin-only>
         <button class="primary-button small red" type="button" data-update-source-id="${escapeAttr(source.id)}" ${adminActionAttributes()}>更新 5 条</button>
       </footer>` : ""}
@@ -2132,8 +2588,11 @@ function renderSources() {
             `;
           })
           .join("")
-      : `<article class="result-card"><h3>暂无来源</h3><p>先从“批量导入账号作品”保存一个博主来源。</p></article>`;
+      : `<article class="result-card"><h3>暂无来源</h3></article>`;
   document.querySelector("#source-grid").innerHTML = sourceGroups;
+  if (focusedSourceId) [...document.querySelectorAll(".source-performance")]
+    .find(element => element.dataset.sourcePerformance === focusedSourceId)
+    ?.querySelector(":scope > summary")?.focus({ preventScroll: true });
 }
 
 function renderPipeline() {
@@ -2234,9 +2693,9 @@ function renderVideos() {
       </article>
     `
     : "";
-  let emptyState = `<article class="result-card"><h3>暂无视频</h3><p>这个来源还没有入库视频。</p></article>`;
+  let emptyState = `<article class="result-card"><h3>暂无视频</h3></article>`;
   if (!visibleVideos.length && apiLoadState.status === "loading") {
-    emptyState = `<article class="result-card"><h3>正在加载视频...</h3><p>正在连接本地接口，第 ${apiLoadState.attempts || 1} 次尝试。</p></article>`;
+    emptyState = `<article class="result-card"><h3>正在加载视频…</h3></article>`;
   } else if (!visibleVideos.length && apiLoadState.status === "error") {
     emptyState = `
       <article class="result-card">
@@ -2259,15 +2718,14 @@ function renderVideos() {
           const extractBlocked = extracting || hasClaims || isFiltered || !hasTranscript;
           const transcriptLabel = hasTranscript ? "文案已保存" : video.status === "transcript_failed" ? "文案获取失败" : "文案未获取";
           const claimsLabel = extracting ? "观点提取中" : hasClaims ? "观点已提取" : isFiltered ? "观点已过滤" : "观点未提取";
-          const statusIcon = (complete) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${complete ? '<path d="m3 8 3 3 7-7"/>' : '<path d="m4 4 8 8M12 4l-8 8"/>'}</svg>`;
           return `
         <article class="video-card">
           <div>
-            <div class="video-content-status" aria-label="文案与观点状态">
-              <span class="status ${hasTranscript ? "done" : "missing"}" title="${transcriptLabel}" aria-label="${transcriptLabel}">文案 ${statusIcon(hasTranscript)}</span>
-              <span class="status ${hasClaims ? "done" : "missing"}" title="${claimsLabel}" aria-label="${claimsLabel}">观点 ${statusIcon(hasClaims)}</span>
+            <div class="video-content-status" aria-label="文案、观点与推广状态">
+              ${renderVideoStateBadge("document", "文案", hasTranscript ? "done" : video.status === "transcript_failed" ? "failed" : "missing", transcriptLabel)}
+              ${renderVideoStateBadge("claims", "观点", extracting ? "running" : hasClaims ? "done" : "missing", claimsLabel)}
+              ${renderAdBadge(video)}
             </div>
-            ${renderAdBadge(video)}
             <h3>${escapeHtml(video.title)}</h3>
             <div class="video-share-link">
               <span class="video-share-label">分享链接：</span>
@@ -2282,6 +2740,7 @@ function renderVideos() {
           <div class="timeline-meta">
             <span class="chip">${escapeHtml(video.publishTime)}</span>
             <button class="chip video-claims-trigger" type="button" data-video-claims-id="${escapeAttr(video.id)}" aria-haspopup="dialog" aria-controls="video-claims-dialog" aria-label="查看${escapeAttr(video.title)}的观点">${video.claimCount} 条观点</button>
+            ${video.excludedClaimCount && adminSession.authenticated && !adminSession.read_only && !window.DECOR_PUBLIC_LIBRARY ? `<button class="video-filtered-trigger" type="button" data-video-exclusions-id="${escapeAttr(video.id)}" aria-haspopup="dialog" aria-controls="video-exclusions-dialog" aria-label="查看 ${video.excludedClaimCount} 条过滤记录" title="查看过滤的原文和原因">${videoBadgeSvg("filter")}<span>过滤 ${video.excludedClaimCount}</span><span aria-hidden="true">›</span></button>` : ""}
           </div>
           <footer>
             <button class="primary-button small" type="button" data-video-id="${escapeAttr(video.id)}">查看详情</button>
@@ -2337,12 +2796,13 @@ function getVideoProgressState(video) {
   if (["uncertain", "error"].includes(video.adReview?.decision)) return { key: "待确认", label: "疑似推广", step: 2, retry: "重试" };
   const hasTranscript = hasVideoTranscript(video);
   const claimCount = video.claimCount || video.claims.length;
-  if (video.status === "claims_filtered") {
+  if (video.status === "claims_filtered" && (!video.lastError || video.lastError.startsWith("无有效内容"))) {
     return { key: "已完成", label: "已过滤", step: 3, retry: "完成" };
   }
   if (video.status === "transcript_failed" || video.lastError) {
     return { key: "失败", label: "失败", step: 1, retry: "重试" };
   }
+  if (video.excludedClaimCount > 0) return { key: "已完成", label: claimCount > 0 ? "已完成" : "已过滤", step: 3, retry: "完成" };
   if (!video.sourceUrl && !video.shareUrl) {
     return { key: "缺链接", label: "缺链接", step: 0, retry: "获取链接" };
   }
@@ -2356,6 +2816,10 @@ function getVideoProgressState(video) {
 }
 
 function renderProgress() {
+  document.querySelectorAll(".progress-note[data-progress-note-id]").forEach(element => {
+    if (element.open) expandedProgressNotes.add(element.dataset.progressNoteId);
+    else expandedProgressNotes.delete(element.dataset.progressNoteId);
+  });
   const sortedProgressVideos = sortVideosByPublishTime(progressVideos.length ? progressVideos : videos);
   const localCounts = sortedProgressVideos.reduce(
     (acc, video) => {
@@ -2369,11 +2833,12 @@ function renderProgress() {
   const counts = progressSummary || localCounts;
   const tabs = ["全部", "缺链接", "待文案", "待观点", "待确认", "已完成", "失败"];
   const progressTabLabels = { 待文案: "待提取文案", 待观点: "待提取观点" };
+  const progressTabIcons = { 全部: "filter", 缺链接: "cross", 待文案: "document", 待观点: "claims", 待确认: "promotion", 已完成: "check", 失败: "warning" };
   document.querySelector("#progress-tabs").innerHTML = tabs
     .map(
       (tab) => `
-        <button class="filter-button ${activeProgressFilter === tab ? "active" : ""}" type="button" data-progress-filter="${escapeAttr(tab)}">
-          ${escapeHtml(progressTabLabels[tab] || tab)} ${counts[tab] || 0}
+        <button class="filter-button ${activeProgressFilter === tab ? "active" : ""}" type="button" data-progress-filter="${escapeAttr(tab)}" aria-pressed="${activeProgressFilter === tab}">
+          ${videoBadgeSvg(progressTabIcons[tab])}<span>${escapeHtml(progressTabLabels[tab] || tab)}</span><span class="progress-filter-count">${counts[tab] || 0}</span>
         </button>
       `,
     )
@@ -2407,8 +2872,10 @@ function renderProgress() {
           const stageTags = renderProgressStageTags(video);
           const timeTags = renderProgressTimeTags(video);
           const live = getLiveProgressStage(video);
-          const reasonLabel = getVideoReasonLabel(video);
-          const isDone = state.key === "已完成";
+          const presentation = getProgressPresentation(video, state, live);
+          const notice = presentation.tone === "running" ? null : getProgressNotice(video);
+          const retryLabel = state.key === "缺链接" ? "补充来源" : state.key === "已完成" ? "重新处理" : "重试";
+          const busy = Boolean(lastQueueStatus?.running);
           const rowLog =
             activeProgressLogVideoId === video.id
       ? `
@@ -2424,27 +2891,29 @@ function renderProgress() {
               `
               : "";
           return `
-            <article class="progress-card">
-              <span class="status ${isDone ? "done" : state.key === "失败" || state.key === "缺链接" ? "failed" : ""}">${escapeHtml(state.label)}</span>
+            <article class="progress-card" data-progress-video-id="${escapeAttr(video.id)}" data-state="${presentation.tone}">
               <div class="progress-card-main">
-                <h3>${escapeHtml(video.title)}</h3>
-                <p class="progress-creator-line">博主：${escapeHtml(video.creator || "未记录")}</p>
-                <div class="progress-time-list" aria-label="视频时间">
-                  ${timeTags}
+                <div class="progress-card-heading">
+                  <span class="progress-state${presentation.promotionState ? " video-state-badge video-promotion-badge" : ""}"${presentation.promotionState ? ` data-state="${presentation.promotionState}"` : ""}>${videoBadgeSvg(presentation.icon)}<span>${escapeHtml(presentation.label)}</span></span>
+                  <h3 title="${escapeAttr(video.title)}">${escapeHtml(video.title)}</h3>
                 </div>
-                <p>${video.retryCount ? `重试 ${video.retryCount} 次${video.retryCount >= 3 ? "，需确认" : ""}` : "未重试"}</p>
-                ${reasonLabel ? `<p class="progress-reason-line">${escapeHtml(reasonLabel)}</p>` : ""}
-                ${live.line ? `<p class="progress-live-line">${escapeHtml(live.line)}</p>` : ""}
+                <div class="progress-card-meta">
+                  <span class="progress-creator-line">${escapeHtml(video.creator || "博主未记录")}</span>
+                  ${timeTags}
+                  ${video.retryCount ? `<span class="progress-retry-count">重试 ${video.retryCount} 次</span>` : ""}
+                </div>
+                <div class="progress-steps" aria-label="处理阶段">${stageTags}</div>
+                ${notice ? `<details class="progress-note" data-progress-note-id="${escapeAttr(video.id)}" ${expandedProgressNotes.has(video.id) ? "open" : ""}>
+                  <summary><span class="progress-note-summary">${escapeHtml(notice.summary)}</span><span class="progress-note-toggle" aria-hidden="true">详情</span></summary>
+                  <p>${escapeHtml(notice.detail)}</p>
+                </details>` : ""}
               </div>
-              <div class="progress-steps" aria-label="处理阶段">
-                ${stageTags}
-              </div>
-              <footer>
-                ${adminSession.authenticated ? `<button class="primary-button small red" type="button" data-progress-retry-video-id="${escapeAttr(video.id)}" data-progress-retry-state="${escapeAttr(state.key)}" ${adminActionAttributes()}>重试</button>` : ""}
+              <footer class="progress-card-actions">
                 <button class="primary-button small" type="button" data-video-id="${escapeAttr(video.id)}">详情</button>
+                ${adminSession.authenticated ? `<button class="primary-button small progress-retry-action" type="button" data-progress-retry-video-id="${escapeAttr(video.id)}" data-progress-retry-state="${escapeAttr(state.key)}" aria-label="${escapeAttr(state.key === "缺链接" ? "前往来源页补充链接" : "从获取文案开始重新处理")}" ${adminActionAttributes(busy)}>${presentation.tone === "running" ? "处理中" : retryLabel}</button>` : ""}
                 ${
                   adminSession.authenticated
-                    ? `<button class="primary-button small red" type="button" data-delete-video-id="${escapeAttr(video.id)}">删除视频</button>`
+                    ? `<button class="primary-button small progress-delete-action" type="button" data-delete-video-id="${escapeAttr(video.id)}" aria-label="删除视频：${escapeAttr(video.title)}" title="删除视频">${videoBadgeSvg("delete")}</button>`
                     : ""
                 }
               </footer>
@@ -2453,7 +2922,7 @@ function renderProgress() {
           `;
         })
         .join("")}${paginationCard}`
-    : `<article class="result-card"><h3>暂无视频</h3><p>当前筛选下没有需要处理的视频。</p></article>`;
+    : `<article class="result-card"><h3>暂无待处理视频</h3></article>`;
   setupAutoLoadMore();
 }
 
@@ -2470,11 +2939,62 @@ function applySourceFilter(sourceId, sourceName) {
 
 let videoClaimsRequestId = 0;
 
+function clearVideoExclusions() {
+  exclusionRequestId += 1;
+  const dialog = document.querySelector("#video-exclusions-dialog");
+  dialog?.close();
+  document.querySelector("#video-exclusions-dialog-content")?.replaceChildren();
+  const title = document.querySelector("#video-exclusions-dialog-name");
+  if (title) title.textContent = "";
+  const count = document.querySelector("#video-exclusions-count");
+  if (count) count.textContent = "";
+}
+
+async function openVideoExclusions(videoId) {
+  if (!adminSession.authenticated || adminSession.read_only || window.DECOR_PUBLIC_LIBRARY) return;
+  const dialog = document.querySelector("#video-exclusions-dialog");
+  if (!dialog) return;
+  const content = document.querySelector("#video-exclusions-dialog-content");
+  const title = document.querySelector("#video-exclusions-dialog-name");
+  const count = document.querySelector("#video-exclusions-count");
+  const requestId = ++exclusionRequestId;
+  const isCurrent = () => requestId === exclusionRequestId && dialog.open && adminSession.authenticated && !adminSession.read_only;
+  title.textContent = videos.find(video => video.id === videoId)?.title || "";
+  count.textContent = "";
+  content.setAttribute("aria-busy", "true");
+  content.innerHTML = '<p class="video-claims-notice" role="status">正在加载…</p>';
+  if (!dialog.open) dialog.showModal();
+  try {
+    const response = await fetch(`${API_BASE}/admin/videos/${encodeURIComponent(videoId)}/exclusions`, { credentials: "include", cache: "no-store" });
+    if (!isCurrent()) return;
+    if (response.status === 401) {
+      adminSession = { ...adminSession, authenticated: false };
+      renderAdminSession();
+      return;
+    }
+    if (!response.ok) throw new Error("读取失败");
+    const payload = await response.json();
+    if (!isCurrent()) return;
+    title.textContent = payload.video.title;
+    count.textContent = `${payload.total} 条`;
+    content.innerHTML = payload.items.length ? `<ol class="video-exclusion-list">${payload.items.map(item => `<li>
+      <header><span class="exclusion-action" data-action="${item.action === "字段省略" ? "field" : "content"}">${escapeHtml(item.action)}</span>${item.object ? `<h3>${escapeHtml(item.object)}</h3>` : ""}</header>
+      <ul class="exclusion-reasons">${item.reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>
+      ${item.quotes.length ? item.quotes.map(quote => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("") : '<p class="exclusion-missing-quote">未保存对应引句</p>'}
+    </li>`).join("")}</ol>` : '<p class="video-claims-notice" role="status">当前文案没有过滤记录</p>';
+  } catch (error) {
+    if (!isCurrent()) return;
+    content.innerHTML = `<div class="video-claims-notice" role="alert"><p>过滤记录加载失败</p><button class="primary-button small" type="button" data-video-exclusions-id="${escapeAttr(videoId)}">重试</button></div>`;
+  } finally {
+    if (isCurrent()) content.setAttribute("aria-busy", "false");
+  }
+}
+
 async function openVideoClaims(videoId) {
   const dialog = document.querySelector("#video-claims-dialog");
   const content = document.querySelector("#video-claims-dialog-content");
   const title = document.querySelector("#video-claims-dialog-name");
-  const video = videos.find((item) => item.id === videoId);
+  const video = videos.find((item) => item.id === videoId) || progressVideos.find((item) => item.id === videoId);
   const requestId = ++videoClaimsRequestId;
   title.textContent = video?.title || "视频观点";
   content.setAttribute("aria-busy", "true");
@@ -2486,8 +3006,8 @@ async function openVideoClaims(videoId) {
     title.textContent = detail.video.title;
     const claims = (detail.claims || []).map(normalizeApiClaim);
     content.innerHTML = claims.length
-      ? claims.map((claim) => renderClaimCard(claim, { allowDelete: false })).join("")
-      : '<p class="video-claims-notice" role="status">暂无观点，该视频尚未提取出可用观点。</p>';
+      ? claims.map((claim) => renderClaimCard({ ...claim, videoId }, { allowDelete: false })).join("")
+      : '<p class="video-claims-notice" role="status">暂无知识卡</p>';
   } catch (error) {
     if (!dialog.open || requestId !== videoClaimsRequestId) return;
     content.innerHTML = `<div class="video-claims-notice" role="alert"><p>观点加载失败：${escapeHtml(error.message)}</p><button class="primary-button small" type="button" data-video-claims-id="${escapeAttr(videoId)}">重试</button></div>`;
@@ -2496,55 +3016,213 @@ async function openVideoClaims(videoId) {
   }
 }
 
-function renderClaimCard(claim, { allowDelete = true } = {}) {
-  const reasonItems = (Array.isArray(claim.reasons) ? claim.reasons : [claim.reasons]).filter(Boolean);
+function getAuthorStancePresentation(stance) {
+  if (stance === "赞成") return { label: "作者赞成", state: "support" };
+  if (stance === "反对") return { label: "作者反对", state: "oppose" };
+  if (stance === "中性陈述") return { label: "作者中性陈述", state: "statement" };
+  return { label: "作者态度未明确", state: "unknown" };
+}
+
+let claimPromotionNoticeSequence = 0;
+
+const claimRelationLabels = { opposite: "不同观点", similar: "相近观点" };
+const claimRelationGroups = { opposite: "opposite", conditions: "opposite", equivalent: "similar", similar: "similar" };
+const claimRelationSvgs = {
+  opposite: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg>',
+  similar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16m-4-4 4 4-4 4M4 17h16m-4-4 4 4-4 4"/></svg>',
+};
+
+function groupClaimRelationCounts(counts = {}) {
+  const grouped = { opposite: 0, similar: 0 };
+  for (const [kind, value] of Object.entries(counts)) {
+    const group = claimRelationGroups[kind];
+    const count = Number(value);
+    if (group && Number.isFinite(count) && count > 0) grouped[group] += count;
+  }
+  return grouped;
+}
+
+function setClaimRelationMark(kind) {
+  const mark = document.querySelector("#claim-relations-mark");
+  const group = claimRelationGroups[kind] || "similar";
+  mark.innerHTML = claimRelationSvgs[group];
+  mark.dataset.kind = group;
+}
+
+let claimRelationsRequestId = 0;
+let claimRelationsPayload = null;
+let claimRelationsKind = null;
+let claimRelationsIndex = 0;
+
+function renderClaimRelations(kind, index = 0) {
+  const content = document.querySelector("#claim-relations-content");
+  const payload = claimRelationsPayload;
+  if (!payload) return;
+  const counts = groupClaimRelationCounts(payload.relations.reduce((result, row) => {
+    result[row.kind] = (result[row.kind] || 0) + 1;
+    return result;
+  }, {}));
+  const requested = claimRelationGroups[kind];
+  const selected = counts[requested] ? requested : Object.keys(counts).find(key => counts[key]);
+  const rows = payload.relations.filter(row => claimRelationGroups[row.kind] === selected && selected);
+  claimRelationsKind = selected;
+  claimRelationsIndex = Math.max(0, Math.min(index, rows.length - 1));
+  const row = rows[claimRelationsIndex];
+  const reasonLabels = { opposite: "差异", similar: "共同点" };
+  setClaimRelationMark(selected);
+  content.innerHTML = `<div class="claim-comparison-toolbar">
+      <div class="claim-relation-tabs" role="group" aria-label="关联类型">${Object.entries(claimRelationLabels)
+        .filter(([key]) => counts[key]).map(([key, label]) => `<button class="claim-relation-tab" type="button" data-claim-relation-tab="${key}" aria-pressed="${key === selected}">${claimRelationSvgs[key]}${label}<span>${counts[key]}</span></button>`).join("")}</div>
+      ${rows.length > 1 ? `<nav class="claim-comparison-pager" aria-label="切换关联观点">
+        <button type="button" data-claim-relation-step="-1" aria-label="上一条关联观点" ${claimRelationsIndex === 0 ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
+        <span role="status">${claimRelationsIndex + 1}<span> / ${rows.length}</span></span>
+        <button type="button" data-claim-relation-step="1" aria-label="下一条关联观点" ${claimRelationsIndex === rows.length - 1 ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button>
+      </nav>` : ""}
+    </div>
+    ${row?.reason ? `<div class="claim-relation-reason" data-kind="${selected}">${claimRelationSvgs[selected]}<span><strong>${reasonLabels[selected]}</strong>${escapeHtml(row.reason)}</span></div>` : ""}
+    <div class="claim-comparison-layout">
+      <section class="claim-comparison-origin" aria-label="当前观点">
+        <p class="claim-comparison-label"><span class="claim-comparison-dot"></span>当前观点</p>
+        ${renderClaimCard(normalizeKnowledgeClaim(payload.claim), { allowDelete: false, allowRelations: false, showSource: true, comparison: true })}
+      </section>
+      <section class="claim-comparison-related" aria-label="对照观点">
+        <p class="claim-comparison-label">对照观点</p>
+        ${row ? renderClaimCard(normalizeKnowledgeClaim(row.claim), { allowDelete: false, showSource: true, comparison: true, comparisonKind: selected })
+          : '<p class="video-claims-notice" role="status">暂无关联观点</p>'}
+      </section>
+    </div>`;
+  content.scrollTop = 0;
+}
+
+async function openClaimRelations(claimId, kind) {
+  const dialog = document.querySelector("#claim-relations-dialog");
+  const content = document.querySelector("#claim-relations-content");
+  if (!dialog || !claimId) return;
+  const requestId = ++claimRelationsRequestId;
+  claimRelationsPayload = null;
+  setClaimRelationMark(kind);
+  content.setAttribute("aria-busy", "true");
+  content.innerHTML = '<p class="video-claims-notice" role="status">正在加载关联观点…</p>';
+  if (!dialog.open) dialog.showModal();
+  content.scrollTop = 0;
+  dialog.scrollTop = 0;
+  try {
+    const payload = await fetchApiJson(`/knowledge/claims/${encodeURIComponent(claimId)}/relations`);
+    if (!dialog.open || requestId !== claimRelationsRequestId) return;
+    claimRelationsPayload = payload;
+    renderClaimRelations(kind);
+    dialog.scrollTop = 0;
+  } catch (error) {
+    if (!dialog.open || requestId !== claimRelationsRequestId) return;
+    content.innerHTML = `<div class="video-claims-notice" role="alert"><p>${error.status === 404 ? "该知识卡已移除" : "关联观点加载失败"}</p>${error.status === 404 ? "" : `<button class="primary-button small" type="button" data-claim-relations-id="${escapeAttr(claimId)}">重试</button>`}</div>`;
+  } finally {
+    if (requestId === claimRelationsRequestId) content.setAttribute("aria-busy", "false");
+  }
+}
+
+function renderClaimCard(claim, { allowDelete = true, allowRelations = true, showSource = false, comparison = false, comparisonKind = "" } = {}) {
+  const relationCounts = groupClaimRelationCounts(claim.relationCounts);
+  const reasonItems = (Array.isArray(claim.reasons) ? claim.reasons : [claim.reasons])
+    .filter((reason) => reason && String(reason).trim() && String(reason).trim() !== "未提及");
   const supplementary = [
-    ["适用条件", claim.conditions],
     ["替代做法", claim.alternatives],
     ["价格信息", claim.priceInfo],
   ].filter(([, value]) => value && String(value).trim() !== "未提及");
   const tags = [...new Set([claim.stage, ...(claim.tags || [])].filter((tag) => tag && tag !== "未提及"))];
-  const stanceLabel = claim.authorStance === "未明确" ? "作者态度未明确" : `作者${claim.authorStance || "态度未明确"}`;
+  const stance = getAuthorStancePresentation(claim.authorStance);
+  const promotionNoticeId = claim.sourceVideoIsPromotional ? `claim-promotion-${++claimPromotionNoticeSequence}` : "";
   const hasConditions = claim.conditions && claim.conditions.trim() !== "未提及";
   const quotes = (claim.sourceQuotes || []).filter((quote) => typeof quote === "string" && quote.trim());
+  const contentType = claim.contentType && claim.contentType !== "未分类" ? claim.contentType : "";
   const deleteButton =
     allowDelete && adminSession.authenticated && claim.id
-      ? `<button class="primary-button small claim-delete-action" type="button" data-delete-claim-id="${escapeAttr(claim.id)}" data-delete-claim-video-id="${escapeAttr(claim.videoId || "")}" aria-label="删除观点：${escapeAttr(claim.object)}">
+      ? `<button class="primary-button small claim-delete-action" type="button" data-delete-claim-id="${escapeAttr(claim.id)}" data-delete-claim-video-id="${escapeAttr(claim.videoId || "")}" aria-label="删除观点：${escapeAttr(claim.object)}" title="删除观点">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>
           <span>删除观点</span>
         </button>`
       : "";
   return `
-    <article class="result-card claim-card">
+    <article class="result-card claim-card" data-claim-id="${escapeAttr(claim.id || "")}">
       <header class="claim-card-heading">
         <h3>${escapeHtml(claim.object)}</h3>
-        <span class="claim-author-stance">${escapeHtml(stanceLabel)}</span>
+        <div class="claim-card-badges">
+          <span class="claim-author-stance" data-stance="${stance.state}">${videoBadgeSvg(stance.state)}<span>${stance.label}</span></span>
+          ${promotionNoticeId ? `<span class="claim-promotion-notice">
+            <button class="claim-promotion-toggle" type="button" aria-label="推广来源" aria-describedby="${promotionNoticeId}" aria-controls="${promotionNoticeId}" aria-expanded="false">${videoBadgeSvg("promotion")}</button>
+            <span class="claim-promotion-tooltip" id="${promotionNoticeId}" role="tooltip" hidden>来源视频标记为推广</span>
+          </span>` : ""}
+        </div>
       </header>
-      <div class="claim-context-meta"><span>${escapeHtml(claim.contentType || "旧版未分类")}</span>${!hasConditions ? '<span>适用范围未说明</span>' : ""}</div>
-      ${claim.sourceVideoIsPromotional ? '<p class="promotion-source-notice">来源视频标记为推广</p>' : ""}
       <section class="claim-conclusion" aria-label="来源观点">
-        <span class="claim-field-label">来源观点</span>
         <p>${escapeHtml(claim.conclusion || "未提及")}</p>
       </section>
-      <section class="claim-reasons" aria-label="作者给出的理由">
-        <span class="claim-field-label">作者给出的理由</span>
-        ${reasonItems.length ? `<ul>${reasonItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>` : '<p class="claim-muted">文案未提供理由</p>'}
-      </section>
-      ${supplementary.length ? `<dl class="claim-supplementary">${supplementary.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
-      ${quotes.length ? `<details class="claim-evidence"><summary>查看原文引句 · ${quotes.length} 段</summary><p>引句用于核对作者说法，不代表已通过事实核验。</p>${quotes.map((quote) => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</details>` : '<p class="claim-evidence-missing">旧版提取，暂缺卡片级引句；可查看来源核对。</p>'}
+      ${hasConditions ? `<p class="claim-conditions"><span>适用条件</span>${escapeHtml(claim.conditions)}</p>` : ""}
+      ${allowRelations && claim.id && !comparison ? `<div class="claim-relation-links">${Object.entries(claimRelationLabels)
+        .filter(([kind]) => relationCounts[kind] > 0)
+        .map(([kind, label]) => `<button type="button" data-claim-relations-id="${escapeAttr(claim.id)}" data-relation-kind="${kind}" aria-haspopup="dialog" aria-controls="claim-relations-dialog">${claimRelationSvgs[kind]}<span>${label}</span><span class="claim-relation-count">${relationCounts[kind]}</span></button>`).join("")}</div>` : ""}
+      <details class="claim-more">
+        <summary><span class="claim-more-closed">展开详情</span><span class="claim-more-open">收起详情</span></summary>
+        <div class="claim-more-body">
+          ${contentType ? `<div class="claim-context-meta"><span>${escapeHtml(contentType)}</span></div>` : ""}
+          ${reasonItems.length ? `<section class="claim-reasons" aria-label="作者给出的理由">
+            <span class="claim-field-label">理由</span>
+            <ul>${reasonItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>
+          </section>` : ""}
+          ${supplementary.length ? `<dl class="claim-supplementary">${supplementary.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
+          ${quotes.length ? `<section class="claim-evidence" aria-label="原文引句"><span class="claim-field-label">原文</span>${quotes.map((quote) => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</section>` : '<p class="claim-evidence-missing">暂无引句</p>'}
+          ${tags.length > 1 ? `<div class="claim-card-tags" aria-label="全部分类">${tags.slice(1).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+        </div>
+      </details>
       <footer class="claim-card-footer">
-        ${tags.length ? `<div class="claim-card-tags" aria-label="观点分类">${tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+        ${showSource && (claim.creator || claim.videoTitle) ? `<p class="claim-comparison-source">${claim.creator ? `<span>${escapeHtml(claim.creator)}</span>` : ""}${claim.videoTitle ? `<span class="claim-comparison-video-title" title="${escapeAttr(claim.videoTitle)}">${escapeHtml(claim.videoTitle)}</span>` : ""}</p>` : ""}
         <div class="claim-card-actions">
-          <a class="primary-button small claim-source-action" href="${safeUrl(claim.sourceUrl)}" target="_blank" rel="noreferrer">
+          ${tags.length && !comparison ? `<span class="claim-stage-label">${escapeHtml(tags[0])}</span>` : ""}
+          ${comparison && allowRelations && claim.id && Object.values(relationCounts).some(count => count > 0) ? `<button class="claim-comparison-follow" type="button" data-claim-relations-id="${escapeAttr(claim.id)}" data-relation-kind="${escapeAttr(comparisonKind)}" aria-haspopup="dialog" aria-controls="claim-relations-dialog" aria-label="继续对比：${escapeAttr(claim.object)}">${claimRelationSvgs[comparisonKind] || claimRelationSvgs.similar}<span>继续对比</span></button>` : ""}
+          ${claim.videoId ? `<button class="primary-button small claim-source-action" type="button" data-video-id="${escapeAttr(claim.videoId)}" aria-label="查看来源：${escapeAttr(claim.object)}">
             <span>查看来源</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3 10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></svg>
-          </a>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+          </button>` : ""}
           ${deleteButton}
         </div>
       </footer>
     </article>
   `;
 }
+
+function setClaimPromotionNotice(notice, visible) {
+  notice.querySelector(".claim-promotion-toggle").setAttribute("aria-expanded", String(visible));
+  const tooltip = notice.querySelector(".claim-promotion-tooltip");
+  tooltip.hidden = !visible;
+  if (visible) {
+    delete notice.dataset.placement;
+    const visibleBottom = Math.min(window.innerHeight, notice.closest("dialog")?.getBoundingClientRect().bottom ?? Infinity);
+    if (tooltip.getBoundingClientRect().bottom > visibleBottom - 8) notice.dataset.placement = "above";
+  }
+  if (!visible) delete notice.dataset.pinned;
+}
+
+document.addEventListener("pointerover", (event) => {
+  if (event.pointerType === "touch") return;
+  const notice = event.target.closest(".claim-promotion-notice");
+  if (notice && !notice.contains(event.relatedTarget)) setClaimPromotionNotice(notice, true);
+});
+
+document.addEventListener("pointerout", (event) => {
+  const notice = event.target.closest(".claim-promotion-notice");
+  if (notice && !notice.contains(event.relatedTarget) && !notice.dataset.pinned
+      && !notice.contains(document.activeElement)) setClaimPromotionNotice(notice, false);
+});
+
+document.addEventListener("focusin", (event) => {
+  const notice = event.target.closest(".claim-promotion-notice");
+  if (notice) setClaimPromotionNotice(notice, true);
+});
+
+document.addEventListener("focusout", (event) => {
+  const notice = event.target.closest(".claim-promotion-notice");
+  if (notice && !notice.contains(event.relatedTarget) && !notice.dataset.pinned
+      && !notice.matches(":hover")) setClaimPromotionNotice(notice, false);
+});
 
 function getTranscriptEdit(videoId) {
   if (!transcriptEdits.has(videoId)) {
@@ -2556,7 +3234,7 @@ function getTranscriptEdit(videoId) {
 function renderTranscriptEditor(video) {
   if (window.DECOR_PUBLIC_LIBRARY) return;
   const state = video ? getTranscriptEdit(video.id) : null;
-  const editing = Boolean(state?.editing);
+  const editing = !isDeletedVideoDetail() && !video?.sourceReadOnly && Boolean(state?.editing);
   const transcription = videoTranscriptions.get(video?.id);
   const fetchButton = document.querySelector("#fetch-transcript");
   fetchButton.dataset.adminBlocked = String(!video?.detailLoaded || hasVideoTranscript(video) || editing || Boolean(videoExtractions.get(video?.id)?.running));
@@ -2598,7 +3276,7 @@ function renderDetailExtraction(video) {
 function startTranscriptEdit() {
   requireAdminAction();
   const video = findDetailVideo(selectedVideoId);
-  if (!video?.detailLoaded) return;
+  if (!video?.detailLoaded || video.sourceReadOnly || isDeletedVideoDetail()) return;
   const state = getTranscriptEdit(video.id);
   if (state.draft === null) state.draft = video.transcript || "";
   state.editing = true;
@@ -2610,7 +3288,7 @@ function startTranscriptEdit() {
 async function saveTranscriptEdit() {
   requireAdminAction();
   const video = findDetailVideo(selectedVideoId);
-  if (!video?.detailLoaded) return;
+  if (!video?.detailLoaded || video.sourceReadOnly || isDeletedVideoDetail()) return;
   const state = getTranscriptEdit(video.id);
   if (!state.editing || state.saving || !state.draft?.trim()) return;
   state.saving = true;
@@ -2627,9 +3305,10 @@ async function saveTranscriptEdit() {
     progressVideos = progressVideos.map(replace);
     state.editing = false;
     state.draft = null;
-    state.message = `已保存 ${updated.transcriptLength} 字文案。现有知识卡已保留，需要更新时可点击“提取观点”。`;
+    state.message = `已保存 ${updated.transcriptLength} 字，现有知识卡保留；重新提取可更新。`;
     state.type = "ok";
     await Promise.allSettled([
+      loadVideoDetail(video.id),
       fetchApiJson("/bootstrap").then((payload) => {
         apiStats = normalizeApiStats(payload.stats || {});
         sources = payload.sources || sources;
@@ -2652,27 +3331,38 @@ async function saveTranscriptEdit() {
 const promotionEdits = new Map();
 
 function renderPromotionEditor(video) {
-  if (window.DECOR_PUBLIC_LIBRARY) return;
   const state = promotionEdits.get(video?.id);
   const review = video?.adReview;
   const manual = review?.source === "manual";
-  const labels = { not_ad: "普通内容", uncertain: "疑似推广", error: "疑似推广", advertising: "推广" };
-  document.querySelector("#promotion-current").textContent = `${labels[review?.decision] || "未识别"}${review?.decision ? manual ? "（手动设置）" : "（自动识别）" : ""}`;
+  const promotion = getPromotionPresentation(video);
+  const badge = document.querySelector("#promotion-current");
+  const decision = review?.decision;
+  badge.innerHTML = `${videoBadgeSvg(promotion.icon)}<span>${promotion.label}</span>`;
+  badge.dataset.state = promotion.state;
+  badge.title = decision ? window.DECOR_PUBLIC_LIBRARY ? promotion.label : manual ? "手动设置，优先于自动识别" : "自动识别" : "尚未识别推广状态";
+  badge.hidden = !video;
+  if (window.DECOR_PUBLIC_LIBRARY) return;
+  const editor = document.querySelector("#promotion-editor");
+  // data-video-id is reserved for delegated navigation actions.
+  if (editor.dataset.contextVideoId !== (video?.id || "") || !adminSession.authenticated || isDeletedVideoDetail()) editor.open = false;
+  editor.dataset.contextVideoId = video?.id || "";
+  editor.hidden = isDeletedVideoDetail() || video?.sourceReadOnly || !adminSession.authenticated || !video?.detailLoaded;
   const select = document.querySelector("#promotion-decision");
   select.value = state?.draft ?? (manual ? review.decision : "auto");
   select.disabled = !adminSession.authenticated || !video?.detailLoaded || Boolean(state?.saving);
   const button = document.querySelector("#save-promotion");
   button.dataset.adminBlocked = String(!video?.detailLoaded);
   button.dataset.adminBusy = String(Boolean(state?.saving));
-  button.textContent = state?.saving ? "保存中…" : "保存状态";
-  document.querySelector("#promotion-message").textContent = state?.message || (manual ? "手动设置优先，后续自动识别不会覆盖。" : "管理员可手动修改；恢复自动识别不会立即发起模型调用。");
+  button.textContent = state?.saving ? "保存中…" : "保存";
+  document.querySelector("#promotion-message").textContent = state?.message || "";
+  select.title = manual ? "手动设置优先于自动识别" : "自动识别优先使用有效缓存；无缓存时，下次获取或保存文案后识别";
 }
 
 async function savePromotionEdit(event) {
   event.preventDefault();
   requireAdminAction();
   const video = findDetailVideo(selectedVideoId);
-  if (!video?.detailLoaded || promotionEdits.get(video.id)?.saving) return;
+  if (!video?.detailLoaded || video.sourceReadOnly || isDeletedVideoDetail() || promotionEdits.get(video.id)?.saving) return;
   const decision = document.querySelector("#promotion-decision").value;
   const state = { draft: decision, saving: true, message: "" };
   promotionEdits.set(video.id, state);
@@ -2684,7 +3374,9 @@ async function savePromotionEdit(event) {
     state.draft = null;
     await loadApiData();
     await Promise.all([loadVideoDetail(video.id), loadKnowledgePage(), loadProgressSummary(), loadProgressPage()]);
-    state.message = decision === "auto" ? "已恢复自动识别；无有效缓存时将在下次获取或保存文案时识别。" : "已保存，知识卡片来源提示已同步。手动设置不会被自动识别覆盖。";
+    state.message = decision === "auto" ? "已恢复自动识别；无缓存时，下次获取或保存文案后识别。" : "已保存，优先于自动识别。";
+    const editor = document.querySelector("#promotion-editor");
+    if (editor.dataset.contextVideoId === video.id) editor.open = false;
   } catch (error) {
     state.message = `${saved ? "状态已保存，但刷新失败，请刷新页面" : "保存失败"}：${error.message}`;
   } finally {
@@ -2698,70 +3390,111 @@ document.querySelector("#promotion-decision")?.addEventListener("change", (event
   if (selectedVideoId) promotionEdits.set(selectedVideoId, { draft: event.target.value, saving: false, message: "" });
 });
 
+document.addEventListener("click", (event) => {
+  const editor = document.querySelector("#promotion-editor");
+  if (editor?.open && !editor.contains(event.target)) editor.open = false;
+});
+
+function renderDetailSourceInfo(video) {
+  const info = document.querySelector("#detail-source-info");
+  const review = video?.adReview;
+  const quotes = (review?.evidence || []).filter(quote => typeof quote === "string" && quote.trim());
+  const content = video ? [
+    video.shareUrl && video.shareUrl !== video.sourceUrl ? `<div><span>分享链接</span><a href="${safeUrl(video.shareUrl)}" target="_blank" rel="noreferrer">${escapeHtml(video.shareUrl)}</a></div>` : "",
+    video.shareText ? `<div><span>分享文本</span><p>${escapeHtml(video.shareText)}</p></div>` : "",
+    review?.reason ? `<div><span>${review.source === "manual" ? "标记说明" : "识别理由"}</span><p>${escapeHtml(String(review.reason).replaceAll("广告", "推广"))}</p></div>` : "",
+    quotes.length ? `<div><span>识别依据</span><section>${quotes.map(quote => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</section></div>` : "",
+  ].filter(Boolean).join("") : "";
+  if (info.dataset.contextVideoId !== (video?.id || "")) info.open = false;
+  info.dataset.contextVideoId = video?.id || "";
+  info.hidden = !content;
+  document.querySelector("#detail-source-content").innerHTML = content;
+  const note = document.querySelector("#detail-processing-note");
+  const busy = videoExtractions.get(video?.id)?.running || videoTranscriptions.get(video?.id)?.running;
+  const notice = video?.lastError && !busy ? getProgressNotice({ ...video, adReview: null }) : null;
+  if (note.dataset.contextVideoId !== (video?.id || "")) note.open = false;
+  note.dataset.contextVideoId = video?.id || "";
+  note.hidden = !notice;
+  document.querySelector("#detail-processing-summary").textContent = notice?.summary || "";
+  document.querySelector("#detail-processing-reason").textContent = notice?.detail || "";
+}
+
 function renderDetail() {
   const video = findDetailVideo(selectedVideoId);
+  const deletedPreview = isDeletedVideoDetail() || Boolean(video?.sourceReadOnly);
+  document.querySelector("#detail-view").dataset.deletedPreview = String(deletedPreview);
+  const backLabel = document.querySelector("#back-to-videos span:last-child");
+  backLabel.textContent = history.state?.returnView === "deleted" ? "返回回收站" : history.state?.returnView === "knowledge" ? "返回知识库" : history.state?.returnView === "progress" ? "返回处理进度" : history.state?.returnView === "sources" ? "返回视频来源" : "返回视频列表";
+  document.querySelector("#detail-link").hidden = !video;
   renderPromotionEditor(video);
   renderTranscriptEditor(video);
+  renderDetailSourceInfo(video);
   const detailActions = document.querySelector(".detail-actions");
   if (!video) {
     document.querySelector("#detail-platform").textContent = "暂无视频";
-    document.querySelector("#detail-heading").textContent = "暂无视频详情";
+    document.querySelector("#detail-heading").textContent = detailLoadError ? "来源视频暂不可用" : detailLoadingId ? "正在加载来源视频…" : "暂无视频详情";
+    document.querySelector("#detail-heading").removeAttribute("title");
     document.querySelector("#detail-creator").textContent = "-";
     document.querySelector("#detail-claim-count").textContent = "0";
-    document.querySelector("#detail-status").textContent = getVideoStatusLabel("empty");
+    document.querySelector("#detail-status").replaceChildren();
+    document.querySelector("#detail-published").textContent = "";
+    document.querySelector("#detail-transcript-count").textContent = "";
     document.querySelector("#detail-link").href = "#";
-    document.querySelector("#transcript-text").textContent = "暂无原始文案。";
-    document.querySelector("#video-claims").innerHTML = `<article class="result-card"><h3>暂无观点</h3><p>当前还没有可展示的视频数据。</p></article>`;
+    document.querySelector("#transcript-text").textContent = "暂无文案";
+    document.querySelector("#video-claims").innerHTML = `<article class="result-card"><h3>${detailLoadError ? "详情加载失败" : detailLoadingId ? "正在加载…" : "暂无观点"}</h3>${detailLoadError ? `<p>${escapeHtml(detailLoadError)}</p><button type="button" class="primary-button small" data-retry-detail>重试加载</button>` : ""}</article>`;
     detailActions?.querySelector("[data-detail-delete-video]")?.remove();
     return;
   }
   detailActions?.querySelector("[data-detail-delete-video]")?.remove();
-  if (adminSession.authenticated) {
+  if (adminSession.authenticated && !deletedPreview) {
     detailActions?.insertAdjacentHTML(
       "beforeend",
       `<button class="primary-button small red" type="button" data-detail-delete-video data-delete-video-id="${escapeAttr(video.id)}">删除视频</button>`,
     );
   }
-  const reasonLabel = getVideoReasonLabel(video);
-  document.querySelector("#detail-platform").textContent = `${video.platform} Source`;
+  document.querySelector("#detail-platform").textContent = video.platform;
   document.querySelector("#detail-heading").textContent = video.title;
+  document.querySelector("#detail-heading").title = video.title;
   document.querySelector("#detail-creator").textContent = video.creator;
+  document.querySelector("#detail-published").textContent = video.publishTime === "未提及" ? "" : String(video.publishTime).replace("T", " ").replace(/(\d{2}:\d{2}):\d{2}.*$/, "$1");
   document.querySelector("#detail-claim-count").textContent = video.claims.length;
-  document.querySelector("#detail-status").textContent = reasonLabel ? `${getVideoStatusLabel(video.status)}｜${reasonLabel}` : getVideoStatusLabel(video.status);
-  document.querySelector("#detail-link").href = video.sourceUrl;
+  const stages = getProgressStageTags(video).tags;
+  document.querySelector("#detail-status").innerHTML = stages.filter(tag => tag.key !== "link")
+    .map(tag => renderVideoStateBadge(tag.key === "transcript" ? "document" : "claims", tag.title, tag.state === "todo" ? "pending" : tag.state, `${tag.title}：${tag.label}`)).join("");
+  if (deletedPreview) document.querySelector("#detail-status").insertAdjacentHTML("afterbegin", `<span class="video-state-badge" data-state="promotion">${videoBadgeSvg("delete")}<span>回收站</span></span>`);
+  document.querySelector("#detail-link").href = sanitizeUrl(video.sourceUrl || video.shareUrl);
+  document.querySelector("#detail-link").hidden = sanitizeUrl(video.sourceUrl || video.shareUrl) === "#";
   const hasFullTranscript = video.detailLoaded && Boolean(video.transcript?.trim());
-  const transcriptFallback = "该视频尚未保存原始文案。";
-  document.querySelector("#transcript-text").textContent = [
-    `分享链接：${video.shareUrl || "未保存"}`,
-    `分享文本：${video.shareText || "未保存"}`,
-    ...(video.adReview?.reason ? ["", `推广识别：${getVideoReasonLabel(video) || "未发现明显推广结构"}`, ...(video.adReview.evidence || []).map((quote) => `依据：${quote}`)] : []),
-    "",
-    "原始文案：",
-    hasFullTranscript ? video.transcript : transcriptFallback,
-  ].join("\n");
+  const transcriptFallback = "暂无文案";
+  document.querySelector("#detail-transcript-count").textContent = video.transcriptLength ? `${video.transcriptLength} 字` : "";
+  document.querySelector("#transcript-text").textContent = hasFullTranscript ? video.transcript : transcriptFallback;
   document.querySelector("#video-claims").innerHTML = video.claims.length
     ? video.claims
         .map((claim) =>
           renderClaimCard({
             ...claim,
+            videoId: video.id,
             sourceUrl: video.sourceUrl,
-          }),
+          }, { allowDelete: !deletedPreview }),
         )
         .join("")
-    : renderEmptyClaimsState(video, reasonLabel);
+    : renderEmptyClaimsState(video);
+  if (detailLoadError) {
+    document.querySelector("#video-claims").insertAdjacentHTML("afterbegin", `<article class="result-card" role="alert"><h3>详情刷新失败</h3><p>${escapeHtml(detailLoadError)}</p><button type="button" class="primary-button small" data-retry-detail>重试加载</button></article>`);
+  }
 }
 
-function renderEmptyClaimsState(video, reasonLabel = "") {
+function renderEmptyClaimsState(video) {
   if (video.status === "claims_filtered") {
-    return `<article class="result-card claim-empty-card"><h3>无可用观点</h3><p>${escapeHtml(reasonLabel || "该视频没有可沉淀为知识库观点的内容。")}</p></article>`;
+    return `<article class="result-card claim-empty-card"><h3>无可用观点</h3></article>`;
   }
   if (video.status === "transcript_failed") {
-    return `<article class="result-card claim-empty-card"><h3>文案处理失败</h3><p>${escapeHtml(reasonLabel || "该视频尚未提取到可用文案。")}</p></article>`;
+    return `<article class="result-card claim-empty-card"><h3>文案处理失败</h3></article>`;
   }
   if (video.lastError) {
-    return `<article class="result-card claim-empty-card"><h3>观点提取未完成</h3><p>${escapeHtml(reasonLabel)}</p></article>`;
+    return `<article class="result-card claim-empty-card"><h3>观点提取未完成</h3></article>`;
   }
-  return `<article class="result-card claim-empty-card"><h3>暂无观点</h3><p>当前视频尚未提取观点，或正在等待处理。</p></article>`;
+  return `<article class="result-card claim-empty-card"><h3>暂无知识卡</h3></article>`;
 }
 
 function claimMatchesKnowledgeCategory(claim, category) {
@@ -2795,7 +3528,7 @@ function getKnowledgeCategoryCount(category) {
   }
   const counts = category.type === "stage" ? knowledgeFacets.stages : category.type === "stance" ? knowledgeFacets.stances
     : category.type === "authorStance" ? knowledgeFacets.author_stances : category.type === "contentType" ? knowledgeFacets.content_types : knowledgeFacets.tags;
-  return normalizeCount(counts?.[category.value]) ?? 0;
+  return normalizeCount(counts?.[category.value] ?? (category.value === "未分类" ? counts?.["旧版未分类"] : undefined)) ?? 0;
 }
 
 function renderKnowledgeCategories() {
@@ -2829,6 +3562,8 @@ function renderKnowledgeCategories() {
 
 function renderKnowledge() {
   const claims = knowledgeClaims;
+  const openClaims = new Set(activeView === "knowledge"
+    ? navigationPositions.get(navigationEntryKey)?.openClaims || [] : []);
 
   document.querySelector("#knowledge-results").innerHTML =
     claims.length > 0
@@ -2845,9 +3580,16 @@ function renderKnowledge() {
                   : `<span>已加载全部</span>`
           }
         </article>`
-      : `<article class="result-card"><h3>${knowledgePageState.loading ? "正在加载观点..." : "暂无匹配观点"}</h3><p>${
-          knowledgePageState.error ? escapeHtml(knowledgePageState.error) : "换一个流程阶段、标签或关键词试试。"
-        }</p></article>`;
+      : `<article class="result-card"><h3>${knowledgePageState.loading ? "正在加载观点…" : "暂无匹配观点"}</h3>${
+          knowledgePageState.error ? `<p>${escapeHtml(knowledgePageState.error)}</p>` : ""
+        }</article>`;
+  document.querySelectorAll("#knowledge-results .claim-more").forEach((element) => {
+    element.open = openClaims.has(element.closest("[data-claim-id]")?.dataset.claimId);
+  });
+  if (activeView === "knowledge" && claims.length && pendingKnowledgeReturnPosition) {
+    restoreNavigationPosition(pendingKnowledgeReturnPosition);
+    pendingKnowledgeReturnPosition = null;
+  }
   renderKnowledgeCategories();
   setupAutoLoadMore();
 }
@@ -2855,70 +3597,82 @@ function renderKnowledge() {
 function renderDeleted() {
   const container = document.querySelector("#deleted-list");
   if (!container) return;
+  document.querySelectorAll("[data-deleted-tab]").forEach((button) => {
+    const selected = button.dataset.deletedTab === activeDeletedTab;
+    const videoTab = button.dataset.deletedTab === "videos";
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    button.innerHTML = `${videoBadgeSvg(videoTab ? "video" : "claims")}<span>${videoTab ? "视频" : "知识卡"}</span><span class="deleted-tab-count">${videoTab ? deletedItems.videoTotal : deletedItems.claimTotal}</span>`;
+    if (selected) container.setAttribute("aria-labelledby", button.id);
+  });
+  container.setAttribute("aria-busy", String(deletedItems.loading));
   if (!adminSession.authenticated) {
     container.innerHTML = `
       <article class="result-card">
         <h3>需要管理员登录</h3>
-        <p>登录后可以查看和恢复已删除的视频与观点。</p>
         <footer><button class="primary-button small red" type="button" id="admin-login-button-inline">管理员登录</button></footer>
       </article>
     `;
     return;
   }
-  if (deletedItems.loading) {
-    container.innerHTML = `<article class="result-card"><h3>正在加载...</h3><p>正在读取已删除数据。</p></article>`;
+  if (deletedItems.loading && !deletedItems.loaded) {
+    container.innerHTML = `<article class="result-card"><h3>正在加载…</h3></article>`;
     return;
   }
-  if (deletedItems.error) {
+  if (deletedItems.error && !deletedItems.loaded) {
     container.innerHTML = `<article class="result-card"><h3>加载失败</h3><p>${escapeHtml(deletedItems.error)}</p></article>`;
     return;
   }
-  const videoCards = deletedItems.videos
+  const videoCards = (activeDeletedTab === "videos" ? deletedItems.videos : [])
     .map(
       (video) => `
-        <article class="video-card">
-          <span class="status failed">已删除视频</span>
+        <article class="video-card" data-deleted-item-id="${escapeAttr(video.id)}">
+          <span class="status failed">回收站视频</span>
           <h3>${escapeHtml(video.title || video.id)}</h3>
           <p>${escapeHtml(video.creator || "未记录")} / ${escapeHtml(video.platform || "未记录")}</p>
           <div class="timeline-meta">
-            <span class="chip">删除时间：${escapeHtml(formatEpochDateTime(video.deleted_at))}</span>
+            <span class="chip">移入时间：${escapeHtml(formatEpochDateTime(video.deleted_at))}</span>
             <span class="chip">${escapeHtml(video.delete_reason || "未记录原因")}</span>
           </div>
           <footer>
             <button class="primary-button small red" type="button" data-restore-video-id="${escapeAttr(video.id)}">恢复视频</button>
-            <a class="source-link compact-link" href="${safeUrl(video.source_url)}" target="_blank" rel="noreferrer">来源链接</a>
+            <button class="primary-button small" type="button" data-video-id="${escapeAttr(video.id)}" data-video-deleted="true">查看来源</button>
+            <button class="primary-button small trash-purge-action" type="button" data-purge-video-id="${escapeAttr(video.id)}">永久删除</button>
           </footer>
         </article>
       `,
     )
     .join("");
-  const claimCards = deletedItems.claims
+  const claimCards = (activeDeletedTab === "claims" ? deletedItems.claims : [])
     .map(
       (claim) => `
-        <article class="result-card claim-card">
-          <span class="status failed">已删除观点</span>
+        <article class="result-card claim-card" data-deleted-item-id="${escapeAttr(claim.id)}">
+          <span class="status failed">回收站知识卡</span>
           <h3>${escapeHtml(claim.object_name || claim.id)}</h3>
           <p><strong>来源视频：</strong>${escapeHtml(claim.video_title || claim.video_id || "未记录")}</p>
-          <p><strong>原文结论：</strong>${escapeHtml(claim.original_conclusion || "未提及")}</p>
+          <p><strong>观点：</strong>${escapeHtml(claim.original_conclusion || "未提及")}</p>
           <footer class="timeline-meta">
-            <span class="chip">删除时间：${escapeHtml(formatEpochDateTime(claim.deleted_at))}</span>
+            <span class="chip">移入时间：${escapeHtml(formatEpochDateTime(claim.deleted_at))}</span>
             <span class="chip">${claim.video_deleted_at ? "需先恢复视频" : "可恢复"}</span>
-            <button class="primary-button small red" type="button" data-restore-claim-id="${escapeAttr(claim.id)}" ${claim.video_deleted_at ? "disabled" : ""}>恢复观点</button>
+            <button class="primary-button small red" type="button" data-restore-claim-id="${escapeAttr(claim.id)}" ${claim.video_deleted_at ? "disabled" : ""}>恢复知识卡</button>
+            ${claim.video_id ? `<button class="primary-button small" type="button" data-video-id="${escapeAttr(claim.video_id)}" data-video-deleted="${Boolean(claim.video_deleted_at)}">查看来源</button>` : ""}
           </footer>
         </article>
       `,
     )
     .join("");
   const hasDeletedItems = Boolean(videoCards || claimCards);
+  const loadedCount = deletedItems[activeDeletedTab].length;
+  const total = activeDeletedTab === "videos" ? deletedItems.videoTotal : deletedItems.claimTotal;
   container.innerHTML = hasDeletedItems
     ? `
-        <article class="video-filter-notice">
-          <span>已删除视频 ${deletedItems.videoTotal} 条 / 已删除观点 ${deletedItems.claimTotal} 条</span>
-        </article>
         ${videoCards}
         ${claimCards}
+        ${deletedItems.error ? `<article class="video-filter-notice" role="alert">${escapeHtml(deletedItems.error)}</article>` : ""}
+        ${loadedCount < total ? `<article class="video-filter-notice deleted-pagination"><span>已显示 ${loadedCount} / ${total}</span><button class="primary-button small" type="button" data-load-more-deleted ${deletedItems.loading ? "disabled" : ""}>${deletedItems.loading ? "加载中…" : "加载更多"}</button></article>` : ""}
       `
-    : `<article class="result-card"><h3>暂无已删除数据</h3><p>当前没有软删除的视频或观点。</p></article>`;
+    : `<article class="result-card"><h3>回收站暂无${activeDeletedTab === "videos" ? "视频" : "知识卡"}</h3></article>`;
 }
 
 function renderSettings() {
@@ -2929,25 +3683,25 @@ function renderSettings() {
   const label = state.provider === "local_asr" ? "本地 ASR" : state.provider === "transcriptgenerate" ? "API 转写" : "读取中…";
   root.setAttribute("aria-busy", String(state.busy || state.loading));
   root.innerHTML = `
-    <div class="settings-current"><span>当前方式</span><strong>${label}</strong><small>保存后立即生效，并在重启后保留。</small></div>
+    <div class="settings-current"><span>当前方式</span><strong>${label}</strong></div>
     <div class="transcript-provider-grid">
       <article class="transcript-provider-card ${state.provider === "transcriptgenerate" ? "selected" : ""}">
-        <p class="eyebrow">REMOTE / API</p><h3>API 转写</h3>
-        <p>使用已有配置的 TranscriptGenerate 转写接口与账号额度。无需本机运行识别模型。</p>
+        <h3>API 转写</h3>
+        <p>使用已配置的转写接口，消耗账号额度。</p>
         <button class="primary-button" data-select-transcript-provider="transcriptgenerate" ${adminActionAttributes(blocked || state.provider === "transcriptgenerate")}>${state.provider === "transcriptgenerate" ? "当前已启用" : "切换为 API"}</button>
       </article>
       <article class="transcript-provider-card ${state.provider === "local_asr" ? "selected" : ""}">
-        <p class="eyebrow">LOCAL / CPU</p><h3>本地 ASR</h3>
-        <p>使用 SenseVoiceSmall INT8，在本机 CPU 上识别。切换前自动检测依赖、模型加载及实际推理，检测失败不切换。</p>
+        <h3>本地 ASR</h3>
+        <p>使用本机 CPU，检测通过后切换。</p>
         <button class="primary-button" data-select-transcript-provider="local_asr" ${adminActionAttributes(blocked || state.provider === "local_asr")}>${state.provider === "local_asr" ? "当前已启用" : "检测并切换为本地"}</button>
       </article>
     </div>
     <div class="local-asr-health" data-status="${escapeAttr(state.health?.status || "unknown")}">
-      <div><strong>本地服务状态</strong><p>${escapeHtml(state.health?.message || "尚未检测。本地 worker 按需启动，无需单独保持常驻进程。")}</p></div>
+      <div><strong>本地服务状态</strong><p>${escapeHtml(state.health?.message || "尚未检测，服务按需启动。")}</p></div>
       <button class="primary-button small" id="check-local-asr" ${adminActionAttributes(state.busy || state.loading)}>${state.busy ? "处理中…" : "检测本地服务"}</button>
     </div>
     <p class="settings-feedback" id="transcript-settings-message" role="status" data-error="${Boolean(state.error)}">${escapeHtml(state.error || state.message)}</p>
-    <p class="settings-note">${adminSession.authenticated ? "仅影响后续转写；已保存文案不会重录，进行中的任务保持原方式。" : "请先登录管理员，再检测或修改转写方式。"} 本地检测不验证抖音登录与下载权限，也不会调用外部转写服务。未完成的旧 API 任务需先核对，避免重复提交。</p>
+    <p class="settings-note">本地检测不验证抖音登录或下载权限，也不调用外部转写。切换前需核对未完成的 API 任务，避免重复提交。</p>
   `;
 }
 
@@ -3018,10 +3772,13 @@ function renderCurrentView() {
     renderDetail();
   } else if (activeView === "knowledge") {
     renderKnowledge();
+  } else if (activeView === "guide") {
+    window.DecorGuides?.render();
   } else if (activeView === "deleted") {
     renderDeleted();
   } else if (activeView === "settings") {
     renderSettings();
+
   }
 }
 
@@ -3032,6 +3789,16 @@ function renderIfActive(...views) {
 }
 
 document.addEventListener("click", (event) => {
+  const promotionNotice = event.target.closest(".claim-promotion-notice");
+  document.querySelectorAll('.claim-promotion-notice:has([aria-expanded="true"])').forEach((notice) => {
+    if (notice !== promotionNotice) setClaimPromotionNotice(notice, false);
+  });
+  if (event.target.closest(".claim-promotion-toggle")) {
+    const pinned = !promotionNotice.dataset.pinned;
+    setClaimPromotionNotice(promotionNotice, pinned);
+    if (pinned) promotionNotice.dataset.pinned = "true";
+    return;
+  }
   const copySourceButton = event.target.closest("[data-copy-source-url]");
   if (copySourceButton) {
     if (!copySourceButton.disabled) copySourceLink(copySourceButton);
@@ -3108,6 +3875,18 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const deletedTab = event.target.closest("[data-deleted-tab]");
+  if (deletedTab) {
+    activeDeletedTab = deletedTab.dataset.deletedTab;
+    renderDeleted();
+    return;
+  }
+
+  if (event.target.closest("[data-load-more-deleted]")) {
+    if (!deletedItems.loading) loadDeletedItems({ append: true });
+    return;
+  }
+
   const restoreVideoButton = event.target.closest("[data-restore-video-id]");
   if (restoreVideoButton) {
     restoreVideoButton.disabled = true;
@@ -3116,6 +3895,12 @@ document.addEventListener("click", (event) => {
       .finally(() => {
         restoreVideoButton.disabled = false;
       });
+    return;
+  }
+
+  const purgeVideoButton = event.target.closest("[data-purge-video-id]");
+  if (purgeVideoButton) {
+    purgeVideo(purgeVideoButton.dataset.purgeVideoId).catch(error => alert(`永久删除失败：${error.message}`));
     return;
   }
 
@@ -3152,26 +3937,59 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const claimRelationsButton = event.target.closest("[data-claim-relations-id]");
+  if (claimRelationsButton) {
+    openClaimRelations(claimRelationsButton.dataset.claimRelationsId, claimRelationsButton.dataset.relationKind);
+    return;
+  }
+  const claimRelationTab = event.target.closest("[data-claim-relation-tab]");
+  if (claimRelationTab) {
+    renderClaimRelations(claimRelationTab.dataset.claimRelationTab);
+    document.querySelector(`[data-claim-relation-tab="${claimRelationTab.dataset.claimRelationTab}"]`)?.focus({ preventScroll: true });
+    return;
+  }
+  const claimRelationStep = event.target.closest("[data-claim-relation-step]");
+  if (claimRelationStep) {
+    const step = claimRelationStep.dataset.claimRelationStep;
+    renderClaimRelations(claimRelationsKind, claimRelationsIndex + Number(step));
+    const pager = document.querySelector(".claim-comparison-pager");
+    const nextFocus = pager?.querySelector(`[data-claim-relation-step="${step}"]:not(:disabled)`)
+      || pager?.querySelector("button:not(:disabled)");
+    nextFocus?.focus({ preventScroll: true });
+    return;
+  }
+
+  const exclusionsButton = event.target.closest("[data-video-exclusions-id]");
+  if (exclusionsButton) {
+    openVideoExclusions(exclusionsButton.dataset.videoExclusionsId);
+    return;
+  }
+
   const videoButton = event.target.closest("[data-video-id]");
   if (videoButton) {
+    event.preventDefault();
+    document.querySelector("#video-claims-dialog")?.close();
+    document.querySelector("#claim-relations-dialog")?.close();
+    if (activeView === "detail" && selectedVideoId === videoButton.dataset.videoId) {
+      document.querySelector("#detail-heading").scrollIntoView({ block: "start", behavior: "smooth" });
+      return;
+    }
+    const returnView = activeView;
     selectedVideoId = videoButton.dataset.videoId;
-    renderDetail();
-    setView("detail");
-    loadVideoDetail(selectedVideoId)
-      .then(() => {
-        renderDetail();
-        renderVideos();
-        renderProgress();
-      })
-      .catch((error) => {
-        document.querySelector("#video-claims").innerHTML = `<article class="result-card"><h3>详情加载失败</h3><p>${escapeHtml(error.message)}</p></article>`;
-      });
+    setView("detail", { returnView, deletedVideo: videoButton.dataset.videoDeleted === "true" });
+    loadSelectedVideoDetail();
+    return;
+  }
+
+  if (event.target.closest("[data-retry-detail]")) {
+    loadSelectedVideoDetail();
     return;
   }
 
   const backToVideosButton = event.target.closest("#back-to-videos");
   if (backToVideosButton) {
-    setView("videos");
+    if (history.state?.returnView && navigationPositions.has(history.state.returnEntryKey)) history.back();
+    else setView(history.state?.returnView || (isDeletedVideoDetail() ? "deleted" : "videos"));
     return;
   }
 
@@ -3191,6 +4009,7 @@ document.addEventListener("click", (event) => {
     activeKnowledgeGroupTitle = groupTitle;
     activeKnowledgeCategory = knowledgeCategoryGroups.find((group) => group.title === groupTitle)?.items[0] || findKnowledgeCategory("all", "全部");
     renderKnowledgeCategories();
+    document.querySelector("#knowledge-stage-list").scrollLeft = 0;
     loadKnowledgePage();
     return;
   }
@@ -3299,7 +4118,9 @@ document.addEventListener("click", (event) => {
 
   const sourceFilterCard = event.target.closest("[data-source-filter-id]");
   if (sourceFilterCard) {
-    if (event.target.closest("button, a")) return;
+    const retryPerformance = event.target.closest("[data-retry-source-performance]");
+    if (retryPerformance) { loadSourcePerformance(); return; }
+    if (event.target.closest("button, a, details, summary, input, select, textarea")) return;
     applySourceFilter(sourceFilterCard.dataset.sourceFilterId, sourceFilterCard.dataset.sourceFilterName);
     return;
   }
@@ -3384,8 +4205,9 @@ document.addEventListener("click", (event) => {
   if (progressRetryButton) {
     const state = progressRetryButton.dataset.progressRetryState;
     const videoId = progressRetryButton.dataset.progressRetryVideoId;
-    const video = videos.find((item) => item.id === videoId);
+    const video = progressVideos.find((item) => item.id === videoId) || videos.find((item) => item.id === videoId);
     let force = false;
+    const originalLabel = progressRetryButton.textContent;
     setAdminActionBusy(progressRetryButton, true);
     if (state === "缺链接") {
       setView("sources");
@@ -3411,7 +4233,7 @@ document.addEventListener("click", (event) => {
       })
       .finally(() => {
         setAdminActionBusy(progressRetryButton, false);
-        progressRetryButton.textContent = "重试";
+        progressRetryButton.textContent = originalLabel;
       });
     return;
   }
@@ -3422,13 +4244,13 @@ document.addEventListener("click", (event) => {
     const videoId = selectedVideoId;
     const video = findDetailVideo(videoId);
     if (!video?.detailLoaded || hasVideoTranscript(video) || videoTranscriptions.get(videoId)?.running) return;
-    const state = { running: true, message: "正在获取文案，请稍候…", type: "" };
+    const state = { running: true, message: "正在获取文案…", type: "" };
     videoTranscriptions.set(videoId, state);
     getTranscriptEdit(videoId).message = "";
     renderDetail();
     postJson(`${API_BASE}/videos/${videoId}/transcript/retry`, {})
       .then(async () => {
-        state.message = "文案已保存。可点击“提取观点”生成知识卡。";
+        state.message = "文案已保存";
         state.type = "ok";
         await loadApiData();
         await loadVideoDetail(videoId);
@@ -3449,7 +4271,7 @@ document.addEventListener("click", (event) => {
   if (extractButton) {
     const videoId = extractButton.dataset.extractVideoId;
     if (!videoId || videoExtractions.get(videoId)?.running) return;
-    const state = { running: true, message: "正在提取观点，请稍候…", type: "" };
+    const state = { running: true, message: "正在提取观点…", type: "" };
     videoExtractions.set(videoId, state);
     renderIfActive("detail", "videos");
     setAdminActionBusy(extractButton, true);
@@ -3457,7 +4279,7 @@ document.addEventListener("click", (event) => {
     postJson(`${API_BASE}/videos/${videoId}/extract`, {})
       .then(async (result) => {
         if (!["completed", "filtered"].includes(result.status)) throw new Error(result.status || "extract_failed");
-        state.message = result.status === "filtered" ? "本次未提取到可靠知识，已保留原文案。" : `提取完成，保存 ${(result.claims || []).length} 条观点。`;
+        state.message = result.message || (result.status === "filtered" ? "本次未收录观点，已保留原文案。" : `提取完成，保存 ${(result.claims || []).length} 条观点。`);
         state.type = "ok";
         await loadApiData();
         selectedVideoId = videoId;
@@ -3469,7 +4291,7 @@ document.addEventListener("click", (event) => {
       })
       .catch((error) => {
         state.message = error.message.includes("deepseek_timeout") || error.message.includes("Operation timed out")
-          ? "模型响应超时，文案和已有知识卡已保留。请稍后重试提取观点。"
+          ? "模型超时，文案和知识卡已保留，可重试。"
           : `提取失败：${error.message}`;
         state.type = "error";
         if (activeView !== "detail" || selectedVideoId !== videoId) alert(state.message);
@@ -3560,6 +4382,10 @@ document.querySelectorAll("dialog").forEach((dialog) => {
   });
 });
 
+document.querySelector("#video-exclusions-dialog")?.addEventListener("close", (event) => {
+  if (!event.target.open) clearVideoExclusions();
+});
+
 document.addEventListener("click", (event) => {
   const submitButton = event.target.closest("#ingest-form button[type='submit']");
   if (submitButton) {
@@ -3567,15 +4393,53 @@ document.addEventListener("click", (event) => {
   }
 });
 
+document.addEventListener("toggle", (event) => {
+  if (event.target.isConnected && event.target.matches(".progress-note[data-progress-note-id]")) {
+    if (event.target.open) expandedProgressNotes.add(event.target.dataset.progressNoteId);
+    else expandedProgressNotes.delete(event.target.dataset.progressNoteId);
+  }
+  if (event.target.isConnected && event.target.matches(".source-performance[data-source-performance]")) {
+    const id = event.target.dataset.sourcePerformance;
+    if (event.target.open) expandedSourcePerformance.add(id);
+    else expandedSourcePerformance.delete(id);
+  }
+  // Keep reading state across late search responses without caching card content.
+  if (activeView === "knowledge" && event.target.isConnected
+      && event.target.matches("#knowledge-results .claim-more")) rememberNavigationPosition();
+}, true);
+
 document.addEventListener("keydown", (event) => {
+  const deletedTab = event.target.closest("[data-deleted-tab]");
+  if (deletedTab && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    event.preventDefault();
+    activeDeletedTab = event.key === "Home" ? "videos" : event.key === "End" ? "claims" : activeDeletedTab === "videos" ? "claims" : "videos";
+    renderDeleted();
+    document.querySelector(`[data-deleted-tab="${activeDeletedTab}"]`).focus();
+    return;
+  }
+  if (event.key === "Escape") {
+    const promotionNotices = document.querySelectorAll('.claim-promotion-notice:has([aria-expanded="true"])');
+    if (promotionNotices.length) {
+      event.preventDefault();
+      promotionNotices.forEach((notice) => setClaimPromotionNotice(notice, false));
+      return;
+    }
+  }
   if (event.key === "Escape" && adminLoginModal && !adminLoginModal.hidden) {
     event.preventDefault();
     closeAdminLoginModal();
     return;
   }
+  const promotionEditor = document.querySelector("#promotion-editor");
+  if (event.key === "Escape" && promotionEditor?.open) {
+    event.preventDefault();
+    promotionEditor.open = false;
+    promotionEditor.querySelector("summary").focus();
+    return;
+  }
   if (event.key !== "Enter" && event.key !== " ") return;
   const sourceFilterCard = event.target.closest("[data-source-filter-id]");
-  if (!sourceFilterCard || event.target.closest("button, a")) return;
+  if (!sourceFilterCard || event.target.closest("button, a, details, summary, input, select, textarea")) return;
   event.preventDefault();
   applySourceFilter(sourceFilterCard.dataset.sourceFilterId, sourceFilterCard.dataset.sourceFilterName);
 });
@@ -3584,6 +4448,20 @@ function renderAll() {
   renderCurrentView();
 }
 
+function updateKnowledgeBackToTop() {
+  const button = document.querySelector("#knowledge-back-to-top");
+  if (button) button.hidden = activeView !== "knowledge" || window.scrollY < 400;
+}
+
+window.addEventListener("scroll", updateKnowledgeBackToTop, { passive: true });
+document.querySelector("#knowledge-back-to-top")?.addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+});
+
+history.scrollRestoration = "manual";
+navigationEntryKey = createNavigationEntryKey();
+history.replaceState({ ...history.state, view: activeView, entryKey: navigationEntryKey }, "");
+if (activeView === "detail" && history.state.videoId) selectedVideoId = history.state.videoId;
 setView(activeView, { updateHash: false, render: false });
 renderAdminSession();
 renderCurrentView();

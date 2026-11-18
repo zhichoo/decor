@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add nullable source-attribution fields without rewriting legacy claims."""
+"""Add nullable attribution and review-ledger fields without rewriting legacy data."""
 import sys
 
 import psycopg2
@@ -17,6 +17,11 @@ def migrate(dsn=None):
             cur.execute("ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS author_stance text")
             cur.execute("ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS content_type text")
             cur.execute("ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS source_quotes jsonb")
+            cur.execute("ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS field_evidence jsonb")
+            cur.execute("ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS source_scope text")
+            cur.execute("ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS scope_quote text")
+            cur.execute("ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS evidence_contract text")
+            cur.execute("ALTER TABLE public.extraction_runs ADD COLUMN IF NOT EXISTS review_data jsonb")
 
 
 if __name__ == "__main__":

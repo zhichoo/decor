@@ -64,7 +64,9 @@ class DeploymentTests(unittest.TestCase):
              patch.object(entrypoint.os, "umask"):
             entrypoint.main()
             connect.assert_called_once()
-            self.assertEqual(run.call_count, 3)
+            scripts = [Path(call.args[0][1]).name for call in run.call_args_list]
+            self.assertEqual(scripts, ["migrate_transcript_jobs.py", "migrate_claim_context.py",
+                                       "migrate_claim_relations.py", "init_db.py"])
             execute.assert_called_once()
             self.assertEqual(execute.call_args.args[0], "xvfb-run")
 
