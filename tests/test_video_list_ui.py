@@ -743,10 +743,62 @@ class VideoListUITests(unittest.TestCase):
         self.assertEqual(self.page.locator('#knowledge-results .claim-card').count(), 24)
         self.assertFalse(self.errors, self.errors)
 
+    def test_claim_details_hide_text_already_on_the_card(self):
+        claims = [
+            {"id": "repeat", "video_id": "v000", "object_name": "鞋柜插座",
+             "original_conclusion": "鞋柜里面留一个插座，方便感应灯和烘干器的使用。",
+             "original_reasons": ["方便感应灯和烘干器的使用。"],
+             "source_quotes": ["你说你要在鞋柜里面留一个插座，就是为了方便感应灯和烘干器的使用。",
+                               "就是为了方便感应灯和烘干器的使用。"],
+             "author_stance": "赞成"},
+            {"id": "partial", "video_id": "v000", "object_name": "吊顶",
+             "original_conclusion": "客厅不做满吊顶。",
+             "original_reasons": ["客厅不做满吊顶。", "层高只有 2.7 米，做满会压抑。"],
+             "source_quotes": ["我家层高只有 2.7 米，做满会压抑，", "做满会压抑"],
+             "author_stance": "反对"},
+        ]
+        self.page.evaluate("""(claims) => {
+            knowledgeClaims = claims.map(normalizeKnowledgeClaim);
+            knowledgePageState = {...knowledgePageState,total:2,hasMore:false};
+            setView('knowledge');
+        }""", claims)
+        repeat = self.page.locator('#knowledge-results [data-claim-id="repeat"]')
+        self.assertEqual(repeat.locator('.claim-more').count(), 0)
+        partial = self.page.locator('#knowledge-results [data-claim-id="partial"]')
+        partial.locator('summary').click()
+        self.assertEqual(partial.locator('.claim-reasons li').all_inner_texts(), ["层高只有 2.7 米，做满会压抑。"])
+        self.assertEqual(partial.locator('blockquote').count(), 0)
+        self.assertEqual(partial.locator('.claim-evidence-missing').count(), 0)
+        self.assertFalse(self.errors, self.errors)
+
+    def test_expanding_details_grows_only_that_card_in_its_row(self):
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        claims = [{"id": f"row-{i}", "video_id": "v000", "object_name": f"观点 {i}",
+                   "original_conclusion": "签约前明确材料范围。",
+                   "source_quotes": ["签约前明确材料范围，不然后期容易被追加费用。" * 4],
+                   "author_stance": "赞成"} for i in range(6)]
+        self.page.evaluate("""(claims) => {
+            knowledgeClaims = claims.map(normalizeKnowledgeClaim);
+            knowledgePageState = {...knowledgePageState,total:6,hasMore:false};
+            setView('knowledge');
+        }""", claims)
+        heights = "() => [...document.querySelectorAll('#knowledge-results > .claim-card')].slice(0, 3).map(el => el.offsetHeight)"
+        before = self.page.evaluate(heights)
+        self.assertEqual(len(set(before)), 1)
+        card = self.page.locator('#knowledge-results [data-claim-id="row-0"]')
+        card.locator('summary').click()
+        opened = self.page.evaluate(heights)
+        self.assertGreater(opened[0], before[0] + 20)
+        self.assertEqual(opened[1:], before[1:])
+        card.locator('summary').click()
+        self.page.wait_for_function("!document.querySelector('#knowledge-results [data-row-locked]')")
+        self.assertEqual(self.page.evaluate(heights), before)
+        self.assertFalse(self.errors, self.errors)
+
     def test_late_knowledge_search_preserves_expanded_card_on_return(self):
         self.page.set_viewport_size({"width": 390, "height": 844})
         claims = [{"id": f"reading-{i}", "video_id": "v000", "object_name": f"观点 {i}",
-                   "original_conclusion": "签约前明确材料范围。", "source_quotes": ["签约前明确材料范围。"],
+                   "original_conclusion": "签约前明确材料范围。", "source_quotes": ["签约前明确材料范围，不然后期容易被追加费用。"],
                    "author_stance": "赞成", "content_type": "施工做法"} for i in range(24)]
         self.page.evaluate("""(claims) => {
             knowledgeClaims = claims.map(normalizeKnowledgeClaim);

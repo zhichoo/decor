@@ -4883,6 +4883,19 @@ select,
   container: claim-results / inline-size;
 }
 
+/* Cards sit on a tinted well so they read as separate sheets, not one white slab. */
+#knowledge-view .knowledge-result-panel,
+#detail-view .claim-panel {
+  background: var(--surface-2);
+}
+
+#knowledge-results > .claim-card,
+#detail-view #video-claims > .claim-card {
+  border-color: color-mix(in oklch, var(--border) 70%, transparent);
+  background: var(--surface);
+  box-shadow: 0 1px 2px oklch(30% 0.018 88 / 0.05), 0 4px 12px oklch(30% 0.018 88 / 0.04);
+}
+
 #knowledge-results,
 #detail-view #video-claims {
   display: grid;
@@ -5928,6 +5941,77 @@ select,
   .claim-relations-content .claim-conclusion p { font-size: 14px; }
   .claim-comparison-source { margin-bottom: 10px; }
 }
+
+/* Comparison popover: opens beside the clicked link and shows only the other card. */
+.claim-relations-dialog,
+.claim-relations-dialog[open] {
+  position: fixed;
+  inset: auto;
+  z-index: 1000;
+  width: min(440px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 24px));
+  margin: 0;
+  border-radius: 12px;
+  box-shadow: 0 12px 36px oklch(16% 0.018 94 / 0.22);
+}
+.claim-relations-head { padding: 9px 10px 9px 14px; }
+.claim-relations-heading { gap: 8px; }
+.claim-relations-heading h2 { font-size: 14px; }
+.claim-relations-mark { width: 24px; height: 24px; border-radius: 7px; }
+.claim-relations-mark svg { width: 15px; height: 15px; }
+.claim-relations-head .icon-button { width: 28px; height: 28px; }
+.claim-relations-head .icon-button svg { width: 16px; height: 16px; }
+.claim-relations-content { padding: 12px; scrollbar-gutter: auto; }
+.claim-comparison-toolbar { gap: 8px; margin-bottom: 10px; }
+.claim-relation-tabs { gap: 2px; padding: 3px; }
+.claim-relation-tab { gap: 5px; min-height: 28px; padding: 4px 8px; }
+.claim-comparison-pager button { width: 28px; height: 28px; }
+.claim-comparison-current {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 0 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.claim-comparison-current strong { overflow: hidden; color: var(--fg); font-weight: 500; text-overflow: ellipsis; }
+.claim-relation-reason { margin-bottom: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.65; }
+.claim-relation-reason > svg { margin-top: 2px; }
+.claim-relations-content .claim-card { min-height: 0; gap: 10px; padding: 12px 14px; border-radius: 10px; box-shadow: none; }
+.claim-relations-content .claim-card-heading h3 { flex-basis: 140px; font-size: 15px; }
+.claim-relations-content .claim-conclusion p { font-size: 14px; line-height: 1.75; }
+.claim-relations-content .claim-conditions { padding: 7px 10px; font-size: 12px; }
+.claim-relations-content .claim-card-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-top: 10px;
+}
+.claim-comparison-source {
+  display: flex;
+  flex: 1 1 160px;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.claim-comparison-source > span { display: inline; flex: 0 0 auto; }
+.claim-comparison-source > .claim-comparison-video-title {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: inherit;
+}
+.claim-comparison-source > span + .claim-comparison-video-title::before { content: "· "; }
+.claim-relations-content .claim-card-actions { flex: 0 0 auto; gap: 10px; margin-left: auto; }
+.claim-relations-content .claim-source-action { min-height: 30px; }
 
 /* Inner pages: the video statistics are one compact row of numbers; the illustrated
  * metric cards stay on the overview, so the list starts near the top of the page. */

@@ -1,6 +1,6 @@
 # 装修指南
 
-知识库侧栏的「装修指南」是一份只读专题，目前只有一篇：`content/guides/all-inclusive-company.json`（选装修公司指南）。
+知识库侧栏的「选装修公司」是一份只读专题，目前只有一篇：`content/guides/all-inclusive-company.json`（选装修公司指南）。
 
 ## 内容从哪来
 

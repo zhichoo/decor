@@ -85,7 +85,7 @@ const viewTitles = {
   detail: "视频详情",
   progress: "处理进度",
   knowledge: "知识库",
-  guide: "装修指南",
+  guide: "选装修公司",
   deleted: "回收站",
   settings: "设置",
 };
@@ -3129,42 +3129,115 @@ function renderClaimRelations(kind, index = 0) {
   const row = rows[claimRelationsIndex];
   const reasonLabels = { opposite: "差异", similar: "共同点" };
   setClaimRelationMark(selected);
-  content.innerHTML = `<div class="claim-comparison-toolbar">
-      <div class="claim-relation-tabs" role="group" aria-label="关联类型">${Object.entries(claimRelationLabels)
-        .filter(([key]) => counts[key]).map(([key, label]) => `<button class="claim-relation-tab" type="button" data-claim-relation-tab="${key}" aria-pressed="${key === selected}">${claimRelationSvgs[key]}${label}<span>${counts[key]}</span></button>`).join("")}</div>
+  const kinds = Object.entries(claimRelationLabels).filter(([key]) => counts[key]);
+  // With a single kind the tabs only repeat the title, so the title names it instead.
+  document.querySelector("#claim-relations-title").textContent = kinds.length === 1 ? claimRelationLabels[selected] : "关联观点";
+  content.innerHTML = `${kinds.length > 1 || rows.length > 1 ? `<div class="claim-comparison-toolbar">
+      ${kinds.length > 1 ? `<div class="claim-relation-tabs" role="group" aria-label="关联类型">${kinds
+        .map(([key, label]) => `<button class="claim-relation-tab" type="button" data-claim-relation-tab="${key}" aria-pressed="${key === selected}">${claimRelationSvgs[key]}${label}<span>${counts[key]}</span></button>`).join("")}</div>` : ""}
       ${rows.length > 1 ? `<nav class="claim-comparison-pager" aria-label="切换关联观点">
         <button type="button" data-claim-relation-step="-1" aria-label="上一条关联观点" ${claimRelationsIndex === 0 ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
         <span role="status">${claimRelationsIndex + 1}<span> / ${rows.length}</span></span>
         <button type="button" data-claim-relation-step="1" aria-label="下一条关联观点" ${claimRelationsIndex === rows.length - 1 ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button>
       </nav>` : ""}
-    </div>
+    </div>` : ""}
+    ${payload.claim?.id !== claimRelationsAnchorClaimId ? `<p class="claim-comparison-current"><span>当前</span><strong>${escapeHtml(normalizeKnowledgeClaim(payload.claim || {}).object || "")}</strong></p>` : ""}
     ${row?.reason ? `<div class="claim-relation-reason" data-kind="${selected}">${claimRelationSvgs[selected]}<span><strong>${reasonLabels[selected]}</strong>${escapeHtml(row.reason)}</span></div>` : ""}
-    <div class="claim-comparison-layout">
-      <section class="claim-comparison-origin" aria-label="当前观点">
-        <p class="claim-comparison-label"><span class="claim-comparison-dot"></span>当前观点</p>
-        ${renderClaimCard(normalizeKnowledgeClaim(payload.claim), { allowDelete: false, allowRelations: false, showSource: true, comparison: true })}
-      </section>
-      <section class="claim-comparison-related" aria-label="对照观点">
-        <p class="claim-comparison-label">对照观点</p>
-        ${row ? renderClaimCard(normalizeKnowledgeClaim(row.claim), { allowDelete: false, showSource: true, comparison: true, comparisonKind: selected })
-          : '<p class="video-claims-notice" role="status">暂无关联观点</p>'}
-      </section>
-    </div>`;
+    <section class="claim-comparison-related" aria-label="对照观点">
+      ${row ? renderClaimCard(normalizeKnowledgeClaim(row.claim), { allowDelete: false, showSource: true, comparison: true, comparisonKind: selected })
+        : '<p class="video-claims-notice" role="status">暂无关联观点</p>'}
+    </section>`;
   content.scrollTop = 0;
+  placeClaimRelations();
 }
 
-async function openClaimRelations(claimId, kind) {
+/* The comparison opens next to the clicked link, as a non-modal popover: the
+   card being compared stays in view, so the popover only shows the other one. */
+let claimRelationsAnchor = null;
+let claimRelationsAnchorClaimId = null;
+let claimRelationsFrame = 0;
+
+function placeClaimRelations() {
+  const dialog = document.querySelector("#claim-relations-dialog");
+  if (!dialog?.open || !claimRelationsAnchor?.isConnected) return;
+  const gap = 8;
+  const margin = 12;
+  const rect = claimRelationsAnchor.getBoundingClientRect();
+  const width = Math.min(440, window.innerWidth - 2 * margin);
+  const below = window.innerHeight - rect.bottom - gap - margin;
+  const above = rect.top - gap - margin;
+  const useBelow = below >= 320 || below >= above;
+  const room = Math.max(200, useBelow ? below : above);
+  dialog.style.width = `${width}px`;
+  dialog.style.maxHeight = `${room}px`;
+  dialog.style.left = `${Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin)}px`;
+  const height = Math.min(dialog.scrollHeight, room);
+  dialog.style.top = `${useBelow ? rect.bottom + gap : Math.max(margin, rect.top - gap - height)}px`;
+}
+
+function closeClaimRelations({ restoreFocus = false } = {}) {
+  const dialog = document.querySelector("#claim-relations-dialog");
+  if (dialog?.open) dialog.close();
+  if (restoreFocus && claimRelationsAnchor?.isConnected) claimRelationsAnchor.focus({ preventScroll: true });
+}
+
+document.querySelector("#claim-relations-dialog")?.addEventListener("close", () => {
+  claimRelationsAnchor?.setAttribute("aria-expanded", "false");
+});
+
+window.addEventListener("scroll", () => {
+  if (claimRelationsFrame) return;
+  claimRelationsFrame = window.requestAnimationFrame(() => { claimRelationsFrame = 0; placeClaimRelations(); });
+}, { passive: true, capture: true });
+window.addEventListener("resize", () => placeClaimRelations());
+
+document.addEventListener("pointerdown", (event) => {
+  const dialog = document.querySelector("#claim-relations-dialog");
+  if (!dialog?.open || dialog.contains(event.target)) return;
+  // A click on the anchor link toggles the popover in the click handler.
+  if (event.target.closest?.("[data-claim-relations-id]") === claimRelationsAnchor) return;
+  closeClaimRelations();
+});
+
+// Capture phase, so Esc closes only the popover and not a modal dialog that hosts it.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !document.querySelector("#claim-relations-dialog")?.open) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  closeClaimRelations({ restoreFocus: true });
+}, true);
+
+async function openClaimRelations(claimId, kind, trigger = null) {
   const dialog = document.querySelector("#claim-relations-dialog");
   const content = document.querySelector("#claim-relations-content");
   if (!dialog || !claimId) return;
+  // Links inside the popover (继续对比, 重试) keep the original anchor.
+  if (trigger && !dialog.contains(trigger)) {
+    if (dialog.open && claimRelationsAnchor === trigger && claimRelationsKind === claimRelationGroups[kind]) {
+      return closeClaimRelations();
+    }
+    claimRelationsAnchor?.setAttribute("aria-expanded", "false");
+    claimRelationsAnchor = trigger;
+    claimRelationsAnchorClaimId = claimId;
+    trigger.setAttribute("aria-expanded", "true");
+    // Inside a modal dialog (or the guide popover) the page behind is inert, so
+    // the popover has to live inside that dialog to stay clickable.
+    const host = trigger.closest("dialog[open]") || document.body;
+    if (dialog.parentElement !== host) {
+      if (dialog.open) dialog.close();
+      host.append(dialog);
+    }
+  }
   const requestId = ++claimRelationsRequestId;
   claimRelationsPayload = null;
   setClaimRelationMark(kind);
+  document.querySelector("#claim-relations-title").textContent = "关联观点";
   content.setAttribute("aria-busy", "true");
   content.innerHTML = '<p class="video-claims-notice" role="status">正在加载关联观点…</p>';
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) dialog.show();
   content.scrollTop = 0;
   dialog.scrollTop = 0;
+  placeClaimRelations();
   try {
     const payload = await fetchApiJson(`/knowledge/claims/${encodeURIComponent(claimId)}/relations`);
     if (!dialog.open || requestId !== claimRelationsRequestId) return;
@@ -3179,6 +3252,37 @@ async function openClaimRelations(claimId, kind) {
   }
 }
 
+// Cards often repeat the conclusion in their reasons and quotes; the
+// expander should only hold text the reader has not already seen.
+function claimTextBigrams(text) {
+  const chars = String(text || "").replace(/[^\p{L}\p{N}]+/gu, "");
+  const grams = new Set();
+  for (let i = 0; i < chars.length - 1; i += 1) grams.add(chars.slice(i, i + 2));
+  return grams;
+}
+
+// A quote that only wraps the conclusion in filler ("咱们", "其实") adds at
+// most a few unseen bigrams, so maxNew hides it even below the ratio.
+function claimTextIsCovered(text, seen, threshold, { looseThreshold = threshold, maxNew = 0 } = {}) {
+  const grams = claimTextBigrams(text);
+  if (!grams.size) return true;
+  let hits = 0;
+  grams.forEach((gram) => { if (seen.has(gram)) hits += 1; });
+  const ratio = hits / grams.size;
+  return ratio >= threshold || (ratio >= looseThreshold && grams.size - hits <= maxNew);
+}
+
+function claimDetailItems(claim, reasons, quotes) {
+  const visible = claimTextBigrams(`${claim.object || ""}${claim.conclusion || ""}${claim.conditions || ""}`);
+  const newReasons = reasons.filter((reason) => !claimTextIsCovered(reason, visible, 0.7));
+  const compact = quotes.map((quote) => quote.replace(/[^\p{L}\p{N}]+/gu, ""));
+  const wholeQuotes = quotes.filter((quote, index) => !compact.some((other, otherIndex) => otherIndex !== index
+    && other.includes(compact[index]) && (other.length > compact[index].length || otherIndex < index)));
+  const seen = claimTextBigrams(`${claim.conclusion || ""}${claim.conditions || ""}${newReasons.join("")}`);
+  const newQuotes = wholeQuotes.filter((quote) => !claimTextIsCovered(quote, seen, 0.85, { looseThreshold: 0.6, maxNew: 10 }));
+  return { reasons: newReasons, quotes: newQuotes };
+}
+
 function renderClaimCard(claim, { allowDelete = true, allowRelations = true, showSource = false, comparison = false, comparisonKind = "" } = {}) {
   const relationCounts = groupClaimRelationCounts(claim.relationCounts);
   const reasonItems = (Array.isArray(claim.reasons) ? claim.reasons : [claim.reasons])
@@ -3191,7 +3295,9 @@ function renderClaimCard(claim, { allowDelete = true, allowRelations = true, sho
   const stance = getAuthorStancePresentation(claim.authorStance);
   const promotionNoticeId = claim.sourceVideoIsPromotional ? `claim-promotion-${++claimPromotionNoticeSequence}` : "";
   const hasConditions = claim.conditions && claim.conditions.trim() !== "未提及";
-  const quotes = (claim.sourceQuotes || []).filter((quote) => typeof quote === "string" && quote.trim());
+  const allQuotes = (claim.sourceQuotes || []).filter((quote) => typeof quote === "string" && quote.trim());
+  const { reasons: detailReasons, quotes } = claimDetailItems(claim, reasonItems, allQuotes);
+  const hasDetails = detailReasons.length > 0 || supplementary.length > 0 || quotes.length > 0;
   const contentType = claim.contentType && claim.contentType !== "未分类" ? claim.contentType : "";
   const deleteButton =
     allowDelete && adminSession.authenticated && claim.id
@@ -3219,19 +3325,19 @@ function renderClaimCard(claim, { allowDelete = true, allowRelations = true, sho
       ${allowRelations && claim.id && !comparison ? `<div class="claim-relation-links">${Object.entries(claimRelationLabels)
         .filter(([kind]) => relationCounts[kind] > 0)
         .map(([kind, label]) => `<button type="button" data-claim-relations-id="${escapeAttr(claim.id)}" data-relation-kind="${kind}" aria-haspopup="dialog" aria-controls="claim-relations-dialog">${claimRelationSvgs[kind]}<span>${label}</span><span class="claim-relation-count">${relationCounts[kind]}</span></button>`).join("")}</div>` : ""}
-      <details class="claim-more">
+      ${hasDetails ? `<details class="claim-more">
         <summary><span class="claim-more-closed">展开详情</span><span class="claim-more-open">收起详情</span></summary>
         <div class="claim-more-body">
           ${contentType ? `<div class="claim-context-meta"><span>${escapeHtml(contentType)}</span></div>` : ""}
-          ${reasonItems.length ? `<section class="claim-reasons" aria-label="作者给出的理由">
+          ${detailReasons.length ? `<section class="claim-reasons" aria-label="作者给出的理由">
             <span class="claim-field-label">理由</span>
-            <ul>${reasonItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>
+            <ul>${detailReasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>
           </section>` : ""}
           ${supplementary.length ? `<dl class="claim-supplementary">${supplementary.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
-          ${quotes.length ? `<section class="claim-evidence" aria-label="原文引句"><span class="claim-field-label">原文</span>${quotes.map((quote) => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</section>` : '<p class="claim-evidence-missing">暂无引句</p>'}
+          ${quotes.length ? `<section class="claim-evidence" aria-label="原文引句"><span class="claim-field-label">原文</span>${quotes.map((quote) => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</section>` : allQuotes.length ? "" : '<p class="claim-evidence-missing">暂无引句</p>'}
           ${tags.length > 1 ? `<div class="claim-card-tags" aria-label="全部分类">${tags.slice(1).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
         </div>
-      </details>
+      </details>` : ""}
       <footer class="claim-card-footer">
         ${showSource && (claim.creator || claim.videoTitle) ? `<p class="claim-comparison-source">${claim.creator ? `<span>${escapeHtml(claim.creator)}</span>` : ""}${claim.videoTitle ? `<span class="claim-comparison-video-title" title="${escapeAttr(claim.videoTitle)}">${escapeHtml(claim.videoTitle)}</span>` : ""}</p>` : ""}
         <div class="claim-card-actions">
@@ -3247,6 +3353,46 @@ function renderClaimCard(claim, { allowDelete = true, allowRelations = true, sho
     </article>
   `;
 }
+
+/* Cards in a grid row stretch to the tallest one. When a card opens its
+   details, lock the row at its current height so only that card grows. */
+function claimGridRow(card) {
+  if (!card?.parentElement?.matches("#knowledge-results, #video-claims")) return [];
+  const top = card.offsetTop;
+  return [...card.parentElement.children].filter((element) =>
+    element.classList.contains("claim-card") && Math.abs(element.offsetTop - top) < 2);
+}
+
+function unlockClaimGridRows(cards) {
+  cards.forEach((card) => {
+    delete card.dataset.rowLocked;
+    card.style.removeProperty("min-height");
+    card.style.removeProperty("align-self");
+  });
+}
+
+document.addEventListener("click", (event) => {
+  const summary = event.target.closest(".claim-more > summary");
+  if (!summary || summary.parentElement.open) return;
+  claimGridRow(summary.closest(".claim-card")).forEach((card) => {
+    if (card.dataset.rowLocked) return;
+    card.style.minHeight = `${card.offsetHeight}px`;
+    card.style.alignSelf = "start";
+    card.dataset.rowLocked = "true";
+  });
+}, true);
+
+document.addEventListener("toggle", (event) => {
+  const details = event.target;
+  if (!details.matches?.(".claim-more") || details.open) return;
+  const row = claimGridRow(details.closest(".claim-card"));
+  if (!row.some((card) => card.querySelector(".claim-more[open]"))) unlockClaimGridRows(row);
+}, true);
+
+window.addEventListener("resize", () => {
+  // Column count may change, so the locked rows no longer line up.
+  unlockClaimGridRows(document.querySelectorAll(".claim-card[data-row-locked]"));
+});
 
 function setClaimPromotionNotice(notice, visible) {
   notice.querySelector(".claim-promotion-toggle").setAttribute("aria-expanded", String(visible));
@@ -3998,7 +4144,7 @@ document.addEventListener("click", (event) => {
 
   const claimRelationsButton = event.target.closest("[data-claim-relations-id]");
   if (claimRelationsButton) {
-    openClaimRelations(claimRelationsButton.dataset.claimRelationsId, claimRelationsButton.dataset.relationKind);
+    openClaimRelations(claimRelationsButton.dataset.claimRelationsId, claimRelationsButton.dataset.relationKind, claimRelationsButton);
     return;
   }
   const claimRelationTab = event.target.closest("[data-claim-relation-tab]");
